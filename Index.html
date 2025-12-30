@@ -1,0 +1,1382 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+  <base target="_top">
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="description"
+    content="KarmSarthi - Har din, har chhutti ka bharosa. Professional leave management system for employees and managers.">
+  <?!= include('Stylesheet'); ?>
+</head>
+
+<body>
+  <!-- Loading Screen -->
+  <div id="loadingScreen" class="loading-screen">
+    <div class="loader"></div>
+    <p>Loading KarmSarthi...</p>
+  </div>
+
+  <!-- Main Container -->
+  <div id="mainContainer" class="container" style="display: none;">
+
+    <!-- Header -->
+    <header class="header">
+      <div class="header-content">
+        <div class="logo" onclick="navigateToHome()" style="cursor: pointer;">
+          <img
+            src="https://media.licdn.com/dms/image/v2/D5622AQF9EXLdfJsDAg/feedshare-shrink_1280/B56ZtVIUq9HkAs-/0/1766659804554?e=1768435200&v=beta&t=O62do53dbIFIIGlNq4Ov5n6VAPnmkwDfeJX-Ylg0QXw"
+            alt="KarmSarthi Logo" class="logo-img">
+          <div class="brand-text">
+            <h1>KarmSarthi</h1>
+            <p class="tagline">Har din, har chhutti ka bharosa</p>
+          </div>
+        </div>
+
+        <!-- Notification Bell -->
+        <div class="notification-container">
+          <button class="notification-bell" id="notificationBell" onclick="toggleNotificationDropdown()">
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"></path>
+              <path d="M13.73 21a2 2 0 0 1-3.46 0"></path>
+            </svg>
+            <span class="notification-badge hidden" id="notificationBadge">0</span>
+          </button>
+
+          <!-- Notification Dropdown -->
+          <div class="notification-dropdown" id="notificationDropdown">
+            <div class="notification-header">
+              <h3>Notifications</h3>
+              <button class="mark-all-read" onclick="markAllNotificationsAsRead()">Mark all as read</button>
+            </div>
+            <div class="notification-list" id="notificationList">
+              <div class="no-notifications">
+                <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                  <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"></path>
+                  <path d="M13.73 21a2 2 0 0 1-3.46 0"></path>
+                </svg>
+                <p>No notifications yet</p>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Profile Menu Container -->
+        <div class="profile-menu-container">
+          <div class="user-info" onclick="toggleProfileMenu()" style="cursor: pointer;"
+            title="Click to open profile menu">
+            <div class="user-avatar" id="userAvatar"></div>
+            <div class="user-details">
+              <span class="user-name" id="userName">Loading...</span>
+              <span class="user-email" id="userEmail"></span>
+            </div>
+            <svg class="profile-dropdown-icon" width="16" height="16" viewBox="0 0 24 24" fill="none"
+              stroke="currentColor" stroke-width="2">
+              <polyline points="6 9 12 15 18 9"></polyline>
+            </svg>
+          </div>
+
+          <!-- Profile Dropdown Menu -->
+          <div class="profile-dropdown" id="profileDropdown">
+            <div class="profile-menu-item" onclick="showEmployeeInfoModal(); closeProfileMenu();">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path>
+                <circle cx="12" cy="7" r="4"></circle>
+              </svg>
+              <span>View Information</span>
+            </div>
+            <div class="profile-menu-item" onclick="showSalaryDetailsModal(); closeProfileMenu();">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                stroke-linecap="round" stroke-linejoin="round">
+                <path d="M6 3h12" />
+                <path d="M6 8h12" />
+                <path d="M6 13h7a4 4 0 0 0 0-8" />
+                <path d="M6 13l8 8" />
+              </svg>
+              <span>Salary Details</span>
+            </div>
+            <div class="profile-menu-item" onclick="showMyDocumentsModal(); closeProfileMenu();">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+                <polyline points="14 2 14 8 20 8"></polyline>
+                <line x1="16" y1="13" x2="8" y2="13"></line>
+                <line x1="16" y1="17" x2="8" y2="17"></line>
+                <polyline points="10 9 9 9 8 9"></polyline>
+              </svg>
+              <span>My Documents</span>
+            </div>
+            <!-- Future menu items can be added here -->
+          </div>
+        </div>
+      </div>
+    </header>
+
+    <!-- Birthday Wish Banner -->
+    <div id="birthdayBanner" class="birthday-banner" style="display: none;">
+      <div class="birthday-confetti">🎉</div>
+      <div class="birthday-content">
+        <div class="birthday-icon">🎂</div>
+        <div class="birthday-message">
+          <h2>प्रिय <span id="birthdayName"></span>,</h2>
+          <p class="birthday-wish-hindi">जन्मदिन की बहुत-बहुत शुभकामनाएँ।</p>
+          <p class="birthday-wish-hindi">हमें आपके योगदान पर गर्व है और हम आशा करते हैं कि आने वाला वर्ष<br>आपके जीवन और
+            करियर में नई ऊँचाइयाँ लेकर आए।</p>
+          <p class="birthday-from">शुभकामनाओं सहित,<br>KarmSarthi Team</p>
+        </div>
+      </div>
+      <div class="birthday-confetti">🎈</div>
+    </div>
+
+    <!-- Role Switcher -->
+    <div class="role-switcher">
+      <button class="role-btn active" id="employeeBtn" onclick="switchRole('employee')">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path>
+          <circle cx="12" cy="7" r="4"></circle>
+        </svg>
+        Leave View
+      </button>
+      <button class="role-btn" id="attendanceBtn" onclick="switchRole('attendance')">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <circle cx="12" cy="12" r="10"></circle>
+          <polyline points="12 6 12 12 16 14"></polyline>
+        </svg>
+        Attendance View
+      </button>
+      <button class="role-btn" id="managerBtn" onclick="switchRole('manager')">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path>
+          <circle cx="9" cy="7" r="4"></circle>
+          <path d="M23 21v-2a4 4 0 0 0-3-3.87"></path>
+          <path d="M16 3.13a4 4 0 0 1 0 7.75"></path>
+        </svg>
+        Leave Approval View
+      </button>
+      <button class="role-btn" id="hrBtn" onclick="switchRole('hr')">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+          <polyline points="14 2 14 8 20 8"></polyline>
+          <line x1="16" y1="13" x2="8" y2="13"></line>
+          <line x1="16" y1="17" x2="8" y2="17"></line>
+        </svg>
+        HR View
+      </button>
+    </div>
+
+    <?!= include('Home'); ?>
+
+
+
+    <!-- Employee View -->
+    <div id="employeeView" class="view-container" style="display: none;">
+
+      <!-- Leave Balance Card -->
+      <div class="balance-card">
+        <div class="balance-header">
+          <h2>Your Leave Balance</h2>
+          <div class="balance-badge">
+            <span id="availableLeaves">0</span> days available
+          </div>
+        </div>
+
+        <div class="balance-stats">
+          <div class="stat-item">
+            <span class="stat-label">Total Leaves</span>
+            <span class="stat-value" id="totalLeaves">0</span>
+          </div>
+          <div class="stat-divider"></div>
+          <div class="stat-item">
+            <span class="stat-label">Used</span>
+            <span class="stat-value" id="usedLeaves">0</span>
+          </div>
+          <div class="stat-divider"></div>
+          <div class="stat-item">
+            <span class="stat-label">Available</span>
+            <span class="stat-value highlight" id="availableLeaves2">0</span>
+          </div>
+        </div>
+
+        <div class="progress-bar">
+          <div class="progress-fill" id="progressFill"></div>
+        </div>
+        <p class="progress-text">
+          <span id="progressText">0% used</span>
+        </p>
+      </div>
+
+      <!-- Apply Leave Form -->
+      <div class="form-card">
+        <h2>Apply for Leave</h2>
+        <form id="leaveForm" onsubmit="submitLeaveRequest(event)">
+
+          <div class="form-group">
+            <label for="leaveType">Leave Type</label>
+            <select id="leaveType" required>
+              <option value="">Select leave type</option>
+              <option value="Casual Leave">Casual Leave</option>
+              <option value="Sick Leave">Sick Leave</option>
+              <option value="Emergency Leave">Emergency Leave</option>
+              <option value="Personal Leave">Personal Leave</option>
+            </select>
+          </div>
+
+          <div class="form-row">
+            <div class="form-group">
+              <label for="startDate">Start Date</label>
+              <input type="date" id="startDate" required>
+            </div>
+            <div class="form-group">
+              <label for="endDate">End Date</label>
+              <input type="date" id="endDate" required>
+            </div>
+          </div>
+
+          <div class="form-group">
+            <label for="dayType">Day Type</label>
+            <select id="dayType" required>
+              <option value="Full Day">Full Day</option>
+              <option value="First Half">First Half (Morning)</option>
+              <option value="Second Half">Second Half (Afternoon)</option>
+            </select>
+            <small class="form-hint" id="dayTypeHint"
+              style="display: none; color: var(--text-secondary); margin-top: 4px;">
+              ℹ️ Half day option is only available for single-date leaves
+            </small>
+          </div>
+
+          <div class="form-group">
+            <label for="reason">Reason</label>
+            <textarea id="reason" rows="3" placeholder="Please provide a reason for your leave..." required></textarea>
+          </div>
+
+          <div class="leave-days-info" id="leaveDaysInfo" style="display: none;">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <circle cx="12" cy="12" r="10"></circle>
+              <path d="M12 16v-4"></path>
+              <path d="M12 8h.01"></path>
+            </svg>
+            <span id="leaveDaysText">0 business days (excluding Sundays & holidays)</span>
+          </div>
+
+          <!-- Insufficient Balance Warning -->
+          <div class="leave-warning-box" id="leaveWarningBox" style="display: none;">
+            <div class="leave-warning-header">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z">
+                </path>
+                <line x1="12" y1="9" x2="12" y2="13"></line>
+                <line x1="12" y1="17" x2="12.01" y2="17"></line>
+              </svg>
+              <span>Insufficient Leave Balance</span>
+            </div>
+            <div class="leave-warning-text">
+              Your current leave balance is <strong id="warningAvailableLeaves">0</strong> days, but you are requesting
+              <strong id="warningRequestedDays">0</strong> days.
+              If you proceed with this request, <strong id="warningExcessDays">0</strong> day(s) will be deducted from
+              your salary upon approval.
+            </div>
+            <div class="leave-warning-checkbox">
+              <input type="checkbox" id="salaryDeductionConfirm">
+              <label for="salaryDeductionConfirm">I understand and agree to salary deduction for excess leave
+                days</label>
+            </div>
+          </div>
+
+          <button type="submit" class="btn-primary" id="submitBtn">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path>
+              <polyline points="22 4 12 14.01 9 11.01"></polyline>
+            </svg>
+            Submit Leave Request
+          </button>
+        </form>
+      </div>
+
+      <!-- Leave Requests Cards -->
+      <div class="requests-section">
+        <h2>Your Leave Requests</h2>
+        <div id="leaveRequestsContainer" class="requests-grid">
+          <div class="no-requests">
+            <svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+              <rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect>
+              <line x1="16" y1="2" x2="16" y2="6"></line>
+              <line x1="8" y1="2" x2="8" y2="6"></line>
+              <line x1="3" y1="10" x2="21" y2="10"></line>
+            </svg>
+            <p>No leave requests found</p>
+            <span>Your leave requests will appear here</span>
+          </div>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- Manager View -->
+    <div id="managerView" class="view-container" style="display: none;">
+
+      <!-- Manager Grid Layout -->
+      <div class="manager-grid-layout">
+
+        <!-- Left Column: Pending Requests -->
+        <div class="manager-grid-left">
+          <!-- Pending Requests Cards -->
+          <div class="requests-section">
+            <div class="section-header">
+              <h2>Pending Leave Requests</h2>
+              <div class="pending-badge" id="pendingCount">0 pending</div>
+            </div>
+            <div id="pendingRequestsContainer" class="requests-grid">
+              <div class="no-requests">
+                <svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                  <path d="M9 11l3 3L22 4"></path>
+                  <path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"></path>
+                </svg>
+                <p>No pending requests</p>
+                <span>Pending leave requests will appear here</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Regularization Requests Section -->
+          <div class="requests-section">
+            <div class="section-header">
+              <h2>Pending Regularization Requests</h2>
+              <div class="pending-badge" id="pendingRegCount">0 pending</div>
+            </div>
+            <div id="pendingRegularizationContainer" class="requests-grid">
+              <div class="no-requests">
+                <svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                  <path d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+                </svg>
+                <p>No pending regularization requests</p>
+                <span>Regularization requests will appear here</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Right Column: Team Calendar -->
+        <div class="manager-grid-right">
+          <!-- Team Calendar Section -->
+          <div class="requests-section">
+            <div class="section-header">
+              <h2>Team Leave Calendar</h2>
+              <div class="calendar-controls">
+                <button class="btn-icon" onclick="navigateCalendar(-1)" title="Previous Month">
+                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <polyline points="15 18 9 12 15 6"></polyline>
+                  </svg>
+                </button>
+                <span id="calendarMonthYear" class="calendar-month-year">Loading...</span>
+                <button class="btn-icon" onclick="navigateCalendar(1)" title="Next Month">
+                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <polyline points="9 18 15 12 9 6"></polyline>
+                  </svg>
+                </button>
+              </div>
+            </div>
+
+            <!-- Team Availability Stats -->
+            <div class="team-stats-grid" id="teamStatsGrid">
+              <div class="team-stat-card">
+                <div class="stat-icon stat-icon-primary">
+                  <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path>
+                    <circle cx="9" cy="7" r="4"></circle>
+                    <path d="M23 21v-2a4 4 0 0 0-3-3.87"></path>
+                    <path d="M16 3.13a4 4 0 0 1 0 7.75"></path>
+                  </svg>
+                </div>
+                <div class="stat-content">
+                  <p class="stat-label">Total Team</p>
+                  <p class="stat-value" id="totalTeamCount">0</p>
+                </div>
+              </div>
+
+              <div class="team-stat-card">
+                <div class="stat-icon stat-icon-success">
+                  <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path>
+                    <polyline points="22 4 12 14.01 9 11.01"></polyline>
+                  </svg>
+                </div>
+                <div class="stat-content">
+                  <p class="stat-label">Available Today</p>
+                  <p class="stat-value" id="availableToday">0</p>
+                </div>
+              </div>
+
+              <div class="team-stat-card">
+                <div class="stat-icon stat-icon-warning">
+                  <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect>
+                    <line x1="16" y1="2" x2="16" y2="6"></line>
+                    <line x1="8" y1="2" x2="8" y2="6"></line>
+                    <line x1="3" y1="10" x2="21" y2="10"></line>
+                  </svg>
+                </div>
+                <div class="stat-content">
+                  <p class="stat-label">On Leave Today</p>
+                  <p class="stat-value" id="onLeaveToday">0</p>
+                </div>
+              </div>
+            </div>
+
+            <!-- Calendar Grid -->
+            <div class="calendar-container">
+              <div class="calendar-weekdays">
+                <div class="calendar-weekday">Sun</div>
+                <div class="calendar-weekday">Mon</div>
+                <div class="calendar-weekday">Tue</div>
+                <div class="calendar-weekday">Wed</div>
+                <div class="calendar-weekday">Thu</div>
+                <div class="calendar-weekday">Fri</div>
+                <div class="calendar-weekday">Sat</div>
+              </div>
+              <div class="calendar-grid" id="calendarGrid">
+                <!-- Calendar dates will be populated here -->
+              </div>
+            </div>
+          </div>
+        </div>
+
+      </div>
+
+    </div>
+
+    <!-- HR View -->
+    <div id="hrView" class="view-container" style="display: none;">
+
+      <!-- Document Verification Section -->
+      <div class="requests-section">
+        <div class="section-header">
+          <h2>Employee Document Verification</h2>
+          <div class="pending-badge" id="pendingDocsCount">0 pending</div>
+        </div>
+        <div id="pendingDocumentsContainer" class="requests-grid">
+          <div class="no-requests">
+            <svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+              <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+              <polyline points="14 2 14 8 20 8"></polyline>
+            </svg>
+            <p>No pending documents</p>
+            <span>Employee documents pending verification will appear here</span>
+          </div>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- Attendance View -->
+    <div id="attendanceView" class="view-container" style="display: none;">
+
+      <!-- Today's Attendance Status Card -->
+      <div class="attendance-status-card">
+        <div class="attendance-status-header">
+          <h2>Today's Attendance</h2>
+          <div id="attendanceStatusBadge" class="status-badge-large">Not Marked</div>
+        </div>
+        <div id="attendanceStatusDisplay" class="attendance-status-content">
+          <div class="attendance-status-icon">
+            <svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <circle cx="12" cy="12" r="10"></circle>
+              <polyline points="12 6 12 12 16 14"></polyline>
+            </svg>
+          </div>
+          <p class="attendance-status-text">You haven't marked your attendance yet today</p>
+        </div>
+
+        <!-- Check-In/Check-Out Details -->
+        <div id="attendanceDetails" class="attendance-details" style="display: none;">
+          <div class="attendance-detail-row">
+            <div class="detail-label">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M12 2v20M2 12h20"></path>
+              </svg>
+              Check-In
+            </div>
+            <div id="checkInTimeDisplay" class="detail-value">--:--</div>
+          </div>
+          <div class="attendance-detail-row">
+            <div class="detail-label">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M18 6L6 18M6 6l12 12"></path>
+              </svg>
+              Check-Out
+            </div>
+            <div id="checkOutTimeDisplay" class="detail-value">--:--</div>
+          </div>
+          <div class="attendance-detail-row total-hours-row">
+            <div class="detail-label">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <circle cx="12" cy="12" r="10"></circle>
+                <polyline points="12 6 12 12 16 14"></polyline>
+              </svg>
+              Total Hours
+            </div>
+            <div id="totalHoursDisplay" class="detail-value total-hours-value">0.00 hrs</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Mark Attendance Card -->
+      <div class="mark-attendance-card">
+        <div class="attendance-instruction">
+          <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"></path>
+            <circle cx="12" cy="10" r="3"></circle>
+          </svg>
+          <div class="instruction-text">
+            <h3>Mark Your Attendance</h3>
+            <p>Select your work mode and mark attendance</p>
+            <p class="sub-text">GPS validation applies only for Office mode</p>
+          </div>
+        </div>
+
+        <!-- Work Mode Selection -->
+        <div class="work-mode-selection">
+          <label for="workModeSelect" class="work-mode-label">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path>
+              <polyline points="9 22 9 12 15 12 15 22"></polyline>
+            </svg>
+            Work Mode
+          </label>
+          <select id="workModeSelect" class="work-mode-dropdown">
+            <option value="Office">🏢 Office (GPS Required)</option>
+            <option value="Work From Home">🏠 Work From Home (WFH)</option>
+            <option value="On-Duty">🚗 On-Duty (Client Site/Field)</option>
+          </select>
+          <small class="work-mode-hint">
+            <span id="workModeHint">GPS radius validation will be enforced</span>
+          </small>
+        </div>
+
+        <div class="attendance-buttons-container">
+          <button id="checkInBtn" class="btn-attendance btn-checkin" onclick="markAttendanceFlow('checkin')">
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M12 2v20M2 12h20"></path>
+            </svg>
+            Check In
+          </button>
+
+          <button id="checkOutBtn" class="btn-attendance btn-checkout" onclick="markAttendanceFlow('checkout')">
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M18 6L6 18M6 6l12 12"></path>
+            </svg>
+            Check Out
+          </button>
+        </div>
+
+        <div id="attendanceLoader" class="attendance-loader" style="display: none;">
+          <div class="spinner"></div>
+          <p id="loaderText">Checking your location...</p>
+        </div>
+      </div>
+
+      <!-- Attendance Statistics -->
+      <div class="attendance-stats-section">
+        <h2>Your Attendance Statistics</h2>
+        <div class="stats-grid">
+          <div class="stat-card stat-card-success">
+            <div class="stat-icon">
+              <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path>
+                <polyline points="22 4 12 14.01 9 11.01"></polyline>
+              </svg>
+            </div>
+            <div class="stat-content">
+              <p class="stat-label">Present Days</p>
+              <p class="stat-value" id="presentDays">0</p>
+              <p class="stat-subtitle">last 30 days</p>
+            </div>
+          </div>
+
+          <div class="stat-card stat-card-info">
+            <div class="stat-icon">
+              <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <circle cx="12" cy="12" r="10"></circle>
+                <line x1="12" y1="16" x2="12" y2="12"></line>
+                <line x1="12" y1="8" x2="12.01" y2="8"></line>
+              </svg>
+            </div>
+            <div class="stat-content">
+              <p class="stat-label">Attendance Rate</p>
+              <p class="stat-value" id="attendancePercentage">0%</p>
+              <p class="stat-subtitle">last 30 days</p>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Request Regularization Button -->
+      <div class="regularization-request-section">
+        <div class="regularization-intro-card">
+          <div class="regularization-intro-icon">
+            <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+            </svg>
+          </div>
+          <div class="regularization-intro-content">
+            <h3>Missed Attendance?</h3>
+            <p>If you forgot to check-in or faced GPS/internet issues, you can request attendance regularization for the
+              last 7 days</p>
+          </div>
+          <button class="btn-regularization" onclick="openRegularizationModal()">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M12 5v14M5 12h14"></path>
+            </svg>
+            Request Regularization
+          </button>
+        </div>
+      </div>
+
+      <!-- Regularization History -->
+      <div class="regularization-history-section">
+        <div class="section-header" style="cursor: pointer;" onclick="toggleSection('regularizationHistory')">
+          <h2>Regularization Requests</h2>
+          <button class="btn-icon" id="regularizationHistoryToggle" title="Collapse/Expand">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <polyline points="6 9 12 15 18 9"></polyline>
+            </svg>
+          </button>
+        </div>
+        <div id="regularizationHistoryContent" class="collapsible-content">
+          <div id="regularizationHistoryContainer" class="regularization-grid">
+            <div class="no-requests">
+              <svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                <path d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+              </svg>
+              <p>No regularization requests</p>
+              <span>Your regularization requests will appear here</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Attendance History -->
+      <div class="attendance-history-section">
+        <div class="section-header" style="cursor: pointer;" onclick="toggleSection('attendanceHistory')">
+          <div style="display: flex; align-items: center; gap: 12px;">
+            <h2>Attendance History</h2>
+            <button class="btn-icon" id="attendanceHistoryToggle" title="Collapse/Expand">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <polyline points="6 9 12 15 18 9"></polyline>
+              </svg>
+            </button>
+          </div>
+          <div class="attendance-filters" onclick="event.stopPropagation()">
+            <select id="attendanceMonthFilter" class="filter-select">
+              <option value="">Select Month</option>
+              <option value="0">January</option>
+              <option value="1">February</option>
+              <option value="2">March</option>
+              <option value="3">April</option>
+              <option value="4">May</option>
+              <option value="5">June</option>
+              <option value="6">July</option>
+              <option value="7">August</option>
+              <option value="8">September</option>
+              <option value="9">October</option>
+              <option value="10">November</option>
+              <option value="11">December</option>
+            </select>
+            <select id="attendanceYearFilter" class="filter-select">
+              <option value="">Select Year</option>
+            </select>
+            <button class="btn-primary btn-sm" onclick="applyAttendanceFilter()">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <circle cx="11" cy="11" r="8"></circle>
+                <path d="m21 21-4.35-4.35"></path>
+              </svg>
+              Apply Filter
+            </button>
+            <button class="btn-secondary btn-sm" onclick="resetAttendanceFilter()">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <polyline points="1 4 1 10 7 10"></polyline>
+                <polyline points="23 20 23 14 17 14"></polyline>
+                <path d="M20.49 9A9 9 0 0 0 5.64 5.64L1 10m22 4l-4.64 4.36A9 9 0 0 1 3.51 15"></path>
+              </svg>
+              Reset
+            </button>
+          </div>
+        </div>
+        <div id="attendanceHistoryContent" class="collapsible-content">
+          <div id="attendanceHistoryContainer" class="attendance-table-container">
+            <div class="no-requests">
+              <svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                <circle cx="12" cy="12" r="10"></circle>
+                <polyline points="12 6 12 12 16 14"></polyline>
+              </svg>
+              <p>No attendance records found</p>
+              <span>Your attendance history will appear here</span>
+            </div>
+          </div>
+        </div>
+
+      </div>
+
+    </div>
+
+    <!-- Footer -->
+    <footer class="footer">
+      <div class="footer-content">
+        <div class="footer-brand">
+          <strong>KarmSarthi</strong> - Har din, har chhutti ka bharosa
+        </div>
+        <div class="footer-text">
+          Making leave management simple, transparent, and trustworthy
+        </div>
+      </div>
+    </footer>
+
+    <!-- Toast Notification -->
+    <div id="toast" class="toast"></div>
+
+    <!-- Approval Modal -->
+    <div id="approvalModal" class="modal">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h3 id="modalTitle">Approve Leave Request</h3>
+          <button class="modal-close" onclick="closeModal()">&times;</button>
+        </div>
+        <div class="modal-body">
+          <div class="form-group">
+            <label for="managerComments">Comments (Optional)</label>
+            <textarea id="managerComments" rows="3" placeholder="Add your comments..."></textarea>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button class="btn-secondary" onclick="closeModal()">Cancel</button>
+          <button class="btn-primary" id="modalActionBtn" onclick="confirmAction()">Confirm</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Edit Leave Modal -->
+    <div id="editLeaveModal" class="modal">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h3>Edit Leave Request</h3>
+          <button class="modal-close" onclick="closeEditModal()">&times;</button>
+        </div>
+        <div class="modal-body">
+          <form id="editLeaveForm">
+            <input type="hidden" id="editRequestId">
+
+            <div class="form-group">
+              <label for="editLeaveType">Leave Type</label>
+              <select id="editLeaveType" required>
+                <option value="">Select leave type</option>
+                <option value="Casual Leave">Casual Leave</option>
+                <option value="Sick Leave">Sick Leave</option>
+                <option value="Emergency Leave">Emergency Leave</option>
+                <option value="Personal Leave">Personal Leave</option>
+              </select>
+            </div>
+
+            <div class="form-row">
+              <div class="form-group">
+                <label for="editStartDate">Start Date</label>
+                <input type="date" id="editStartDate" required>
+              </div>
+              <div class="form-group">
+                <label for="editEndDate">End Date</label>
+                <input type="date" id="editEndDate" required>
+              </div>
+            </div>
+
+            <div class="form-group">
+              <label for="editDayType">Day Type</label>
+              <select id="editDayType" required>
+                <option value="Full Day">Full Day</option>
+                <option value="First Half">First Half (Morning)</option>
+                <option value="Second Half">Second Half (Afternoon)</option>
+              </select>
+              <small class="form-hint" id="editDayTypeHint"
+                style="display: none; color: var(--text-secondary); margin-top: 4px;">
+                ℹ️ Half day option is only available for single-date leaves
+              </small>
+            </div>
+
+            <div class="form-group">
+              <label for="editReason">Reason</label>
+              <textarea id="editReason" rows="3" placeholder="Please provide a reason for your leave..."
+                required></textarea>
+            </div>
+
+            <div class="leave-days-info" id="editLeaveDaysInfo" style="display: none;">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <circle cx="12" cy="12" r="10"></circle>
+                <path d="M12 16v-4"></path>
+                <path d="M12 8h.01"></path>
+              </svg>
+              <span id="editLeaveDaysText">0 business days (excluding Sundays & holidays)</span>
+            </div>
+          </form>
+        </div>
+        <div class="modal-footer">
+          <button class="btn-secondary" onclick="closeEditModal()">Cancel</button>
+          <button class="btn-primary" id="editSubmitBtn" onclick="confirmEdit()">Update Leave</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Cancel Leave Modal -->
+    <div id="cancelLeaveModal" class="modal">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h3 id="cancelModalTitle">Cancel Leave Request</h3>
+          <button class="modal-close" onclick="closeCancelModal()">&times;</button>
+        </div>
+        <div class="modal-body">
+          <input type="hidden" id="cancelRequestId">
+          <input type="hidden" id="cancelLeaveStatus">
+
+          <p id="cancelConfirmText">Are you sure you want to cancel this leave request?</p>
+
+          <div class="form-group" id="cancelReasonGroup" style="display: none;">
+            <label for="cancellationReason">Cancellation Reason <span style="color: #ff6b6b;">*</span></label>
+            <textarea id="cancellationReason" rows="3"
+              placeholder="Please provide a reason for cancelling this approved leave..."></textarea>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button class="btn-secondary" onclick="closeCancelModal()">No, Keep It</button>
+          <button class="btn-danger" id="cancelConfirmBtn" onclick="confirmCancel()">Yes, Cancel</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Employee Profile Modal -->
+    <div id="employeeInfoModal" class="modal">
+      <div class="modal-content employee-profile-modal">
+        <div class="modal-header">
+          <h3>My Profile Information</h3>
+          <button class="modal-close" onclick="closeEmployeeInfoModal()">&times;</button>
+        </div>
+        <div class="modal-body">
+          <div id="employeeProfileLoader" class="profile-loader" style="display: none;">
+            <div class="spinner"></div>
+            <p>Loading your profile...</p>
+          </div>
+
+          <div id="employeeProfileContent" class="employee-profile-content" style="display: none;">
+
+            <!-- Personal Information Section -->
+            <div class="profile-section">
+              <div class="profile-section-header">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path>
+                  <circle cx="12" cy="7" r="4"></circle>
+                </svg>
+                <h4>Personal Information</h4>
+              </div>
+              <div class="profile-grid">
+                <div class="profile-field">
+                  <label>Full Name</label>
+                  <span id="profileName">-</span>
+                </div>
+                <div class="profile-field">
+                  <label>Father's Name</label>
+                  <span id="profileFatherName">-</span>
+                </div>
+                <div class="profile-field">
+                  <label>Date of Birth</label>
+                  <span id="profileDOB">-</span>
+                </div>
+                <div class="profile-field">
+                  <label>Date of Joining</label>
+                  <span id="profileDOJ">-</span>
+                </div>
+              </div>
+            </div>
+
+            <!-- Contact Information Section -->
+            <div class="profile-section">
+              <div class="profile-section-header">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <path
+                    d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z">
+                  </path>
+                </svg>
+                <h4>Contact Information</h4>
+              </div>
+              <div class="profile-grid">
+                <div class="profile-field">
+                  <label>Email Address</label>
+                  <span id="profileEmail">-</span>
+                </div>
+                <div class="profile-field">
+                  <label>Phone Number</label>
+                  <span id="profilePhone">-</span>
+                </div>
+                <div class="profile-field profile-field-full">
+                  <label>Address</label>
+                  <span id="profileAddress">-</span>
+                </div>
+              </div>
+            </div>
+
+            <!-- Employment Details Section -->
+            <div class="profile-section">
+              <div class="profile-section-header">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <rect x="2" y="7" width="20" height="14" rx="2" ry="2"></rect>
+                  <path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"></path>
+                </svg>
+                <h4>Employment Details</h4>
+              </div>
+              <div class="profile-grid">
+                <div class="profile-field">
+                  <label>Employee ID</label>
+                  <span id="profileEmployeeId">-</span>
+                </div>
+                <div class="profile-field">
+                  <label>Designation</label>
+                  <span id="profileDesignation">-</span>
+                </div>
+                <div class="profile-field">
+                  <label>Department</label>
+                  <span id="profileDepartment">-</span>
+                </div>
+                <div class="profile-field profile-field-full">
+                  <label>Manager</label>
+                  <span id="profileManager">-</span>
+                </div>
+              </div>
+            </div>
+
+            <!-- Financial Information Section -->
+            <div class="profile-section">
+              <div class="profile-section-header">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <line x1="12" y1="1" x2="12" y2="23"></line>
+                  <path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"></path>
+                </svg>
+                <h4>Financial Information</h4>
+              </div>
+              <div class="profile-grid">
+                <div class="profile-field">
+                  <label>CTC (Cost to Company)</label>
+                  <span id="profileCTC">-</span>
+                </div>
+              </div>
+            </div>
+
+            <!-- Bank Information Section -->
+            <div class="profile-section">
+              <div class="profile-section-header">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <rect x="2" y="3" width="20" height="14" rx="2" ry="2"></rect>
+                  <line x1="2" y1="7" x2="22" y2="7"></line>
+                </svg>
+                <h4>Bank Information</h4>
+              </div>
+              <div class="profile-grid">
+                <div class="profile-field">
+                  <label>Bank Name</label>
+                  <span id="profileBankName">-</span>
+                </div>
+                <div class="profile-field">
+                  <label>Account Number</label>
+                  <span id="profileAccountNumber">-</span>
+                </div>
+                <div class="profile-field">
+                  <label>IFSC Code</label>
+                  <span id="profileIFSC">-</span>
+                </div>
+                <div class="profile-field">
+                  <label>Branch Name</label>
+                  <span id="profileBranchName">-</span>
+                </div>
+                <div class="profile-field">
+                  <label>Account Type</label>
+                  <span id="profileAccountType">-</span>
+                </div>
+              </div>
+            </div>
+
+            <!-- Government IDs Section -->
+            <div class="profile-section">
+              <div class="profile-section-header">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <rect x="1" y="4" width="22" height="16" rx="2" ry="2"></rect>
+                  <line x1="1" y1="10" x2="23" y2="10"></line>
+                </svg>
+                <h4>Government IDs</h4>
+              </div>
+              <div class="profile-grid">
+                <div class="profile-field">
+                  <label>PAN Number</label>
+                  <span id="profilePAN">-</span>
+                </div>
+                <div class="profile-field">
+                  <label>Aadhaar Number</label>
+                  <span id="profileAadhaar">-</span>
+                </div>
+                <div class="profile-field">
+                  <label>UAN Number</label>
+                  <span id="profileUAN">-</span>
+                </div>
+                <div class="profile-field">
+                  <label>ESI Number</label>
+                  <span id="profileESI">-</span>
+                </div>
+              </div>
+            </div>
+
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Salary Details Modal -->
+    <div id="salaryDetailsModal" class="modal">
+      <div class="modal-content salary-modal">
+        <div class="modal-header">
+          <h3>Salary Details</h3>
+          <button class="modal-close" onclick="closeSalaryDetailsModal()">&times;</button>
+        </div>
+        <div class="modal-body">
+          <!-- Month/Year Selector -->
+          <div class="salary-selector">
+            <div class="form-group">
+              <label for="salaryMonthSelect">Select Month & Year</label>
+              <select id="salaryMonthSelect" class="filter-select" onchange="loadSelectedSalary()">
+                <option value="">Select a month...</option>
+              </select>
+            </div>
+          </div>
+
+          <!-- Loading State -->
+          <div id="salaryLoader" class="profile-loader" style="display: none;">
+            <div class="spinner"></div>
+            <p>Loading salary details...</p>
+          </div>
+
+          <!-- No Data Message -->
+          <div id="salaryNoData" class="profile-error" style="display: none;">
+            <svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+              <circle cx="12" cy="12" r="10"></circle>
+              <line x1="12" y1="8" x2="12" y2="12"></line>
+              <line x1="12" y1="16" x2="12.01" y2="16"></line>
+            </svg>
+            <p>No Salary Data Available</p>
+            <span id="salaryNoDataMessage">Please select a month to view salary details</span>
+          </div>
+
+          <!-- Salary Content -->
+          <div id="salaryContent" class="salary-content" style="display: none;">
+            <!-- Employee Info Header -->
+            <div class="salary-employee-header">
+              <div class="salary-employee-info">
+                <h4 id="salaryEmployeeName">-</h4>
+                <p><strong>Employee ID:</strong> <span id="salaryEmployeeId">-</span></p>
+                <p><strong>Date of Joining:</strong> <span id="salaryDOJ">-</span></p>
+                <p><strong>Paid Days:</strong> <span id="salaryPaidDays">-</span></p>
+                <p><strong>Designation:</strong> <span id="salaryDesignation">-</span></p>
+                <p><strong>Department:</strong> <span id="salaryDepartment">-</span></p>
+              </div>
+              <div class="salary-period">
+                <p><strong>Salary Period:</strong></p>
+                <p id="salaryPeriod" class="salary-period-text">-</p>
+              </div>
+            </div>
+
+            <!-- Salary Breakdown -->
+            <div class="salary-breakdown">
+              <!-- Earnings Section -->
+              <div class="salary-section">
+                <div class="salary-section-header">
+                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <polyline points="23 6 13.5 15.5 8.5 10.5 1 18"></polyline>
+                    <polyline points="17 6 23 6 23 12"></polyline>
+                  </svg>
+                  <h4>Earnings</h4>
+                </div>
+                <div class="salary-table">
+                  <div class="salary-row">
+                    <span class="salary-label">Basic Salary</span>
+                    <span class="salary-value" id="salaryBasic">₹0.00</span>
+                  </div>
+                  <div class="salary-row">
+                    <span class="salary-label">House Rent Allowance (HRA)</span>
+                    <span class="salary-value" id="salaryHRA">₹0.00</span>
+                  </div>
+                  <div class="salary-row">
+                    <span class="salary-label">Conveyance Allowance</span>
+                    <span class="salary-value" id="salaryConveyance">₹0.00</span>
+                  </div>
+                  <div class="salary-row">
+                    <span class="salary-label">Medical Allowance</span>
+                    <span class="salary-value" id="salaryMedical">₹0.00</span>
+                  </div>
+                  <div class="salary-row">
+                    <span class="salary-label">Special Allowance</span>
+                    <span class="salary-value" id="salarySpecial">₹0.00</span>
+                  </div>
+                  <div class="salary-row">
+                    <span class="salary-label">Other Earnings</span>
+                    <span class="salary-value" id="salaryOtherEarnings">₹0.00</span>
+                  </div>
+                  <div class="salary-row salary-total-row">
+                    <span class="salary-label"><strong>Gross Salary</strong></span>
+                    <span class="salary-value salary-total" id="salaryGross">₹0.00</span>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Deductions Section -->
+              <div class="salary-section">
+                <div class="salary-section-header">
+                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <polyline points="23 18 13.5 8.5 8.5 13.5 1 6"></polyline>
+                    <polyline points="17 18 23 18 23 12"></polyline>
+                  </svg>
+                  <h4>Deductions</h4>
+                </div>
+                <div class="salary-table">
+                  <div class="salary-row">
+                    <span class="salary-label">Provident Fund (PF)</span>
+                    <span class="salary-value salary-deduction" id="salaryPF">₹0.00</span>
+                  </div>
+                  <div class="salary-row">
+                    <span class="salary-label">ESI</span>
+                    <span class="salary-value salary-deduction" id="salaryESI">₹0.00</span>
+                  </div>
+                  <div class="salary-row">
+                    <span class="salary-label">Professional Tax</span>
+                    <span class="salary-value salary-deduction" id="salaryPT">₹0.00</span>
+                  </div>
+                  <div class="salary-row">
+                    <span class="salary-label">TDS</span>
+                    <span class="salary-value salary-deduction" id="salaryTDS">₹0.00</span>
+                  </div>
+                  <div class="salary-row">
+                    <span class="salary-label">Other Deductions</span>
+                    <span class="salary-value salary-deduction" id="salaryOtherDeductions">₹0.00</span>
+                  </div>
+                  <div class="salary-row salary-total-row">
+                    <span class="salary-label"><strong>Total Deductions</strong></span>
+                    <span class="salary-value salary-total salary-deduction" id="salaryTotalDeductions">₹0.00</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- Net Salary -->
+            <div class="salary-net-section">
+              <div class="salary-net-row">
+                <span class="salary-net-label">Net Salary (Take Home)</span>
+                <span class="salary-net-value" id="salaryNet">₹0.00</span>
+              </div>
+            </div>
+
+            <!-- Download PDF Button -->
+            <div class="salary-actions">
+              <button class="btn-primary btn-download-pdf" onclick="downloadSalaryPDF()">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                  <polyline points="7 10 12 15 17 10"></polyline>
+                  <line x1="12" y1="15" x2="12" y2="3"></line>
+                </svg>
+                Download Salary Slip (PDF)
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Regularization Request Modal -->
+    <div id="regularizationModal" class="modal">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h3>Request Attendance Regularization</h3>
+          <button class="modal-close" onclick="closeRegularizationModal()">&times;</button>
+        </div>
+        <div class="modal-body">
+          <p style="color: var(--text-secondary); margin-bottom: 20px;">
+            Request regularization for dates when you couldn't check-in due to GPS issues, internet problems, or
+            forgetfulness.
+          </p>
+          <form id="regularizationForm">
+            <div class="form-group">
+              <label for="regAttendanceDate">Attendance Date <span style="color: #ff6b6b;">*</span></label>
+              <input type="date" id="regAttendanceDate" required>
+              <small class="form-hint" style="display: block; margin-top: 8px; color: var(--text-secondary);">
+                ℹ️ You can only request regularization for the last 7 days
+              </small>
+            </div>
+
+            <div class="form-group">
+              <label for="regReason">Reason <span style="color: #ff6b6b;">*</span></label>
+              <textarea id="regReason" rows="4"
+                placeholder="Please provide a detailed reason (minimum 10 characters)..." required></textarea>
+              <small class="form-hint" style="display: block; margin-top: 8px; color: var(--text-secondary);">
+                Example: "Internet connectivity issue prevented me from checking in"
+              </small>
+            </div>
+          </form>
+        </div>
+        <div class="modal-footer">
+          <button class="btn-secondary" onclick="closeRegularizationModal()">Cancel</button>
+          <button class="btn-primary" id="submitRegularizationBtn" onclick="submitRegularization()">Submit
+            Request</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Document Verification Modal (HR) -->
+    <div id="documentVerificationModal" class="modal">
+      <div class="modal-content modal-large">
+        <div class="modal-header">
+          <h3>Verify Employee Document</h3>
+          <button class="modal-close" onclick="closeDocumentVerificationModal()">&times;</button>
+        </div>
+        <div class="modal-body">
+          <input type="hidden" id="verifyDocumentId">
+
+          <!-- Employee Information -->
+          <div class="document-verification-info">
+            <h4>Employee Information</h4>
+            <div class="info-grid">
+              <div class="info-item">
+                <span class="info-label">Employee Name:</span>
+                <span class="info-value" id="verifyEmployeeName"></span>
+              </div>
+              <div class="info-item">
+                <span class="info-label">Email:</span>
+                <span class="info-value" id="verifyEmployeeEmail"></span>
+              </div>
+              <div class="info-item">
+                <span class="info-label">Document Type:</span>
+                <span class="info-value" id="verifyDocumentType"></span>
+              </div>
+              <div class="info-item">
+                <span class="info-label">Upload Date:</span>
+                <span class="info-value" id="verifyUploadDate"></span>
+              </div>
+              <div class="info-item">
+                <span class="info-label">File Name:</span>
+                <span class="info-value" id="verifyFileName"></span>
+              </div>
+              <div class="info-item">
+                <span class="info-label">File Size:</span>
+                <span class="info-value" id="verifyFileSize"></span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Document Preview/Download -->
+          <div class="document-preview-section">
+            <button class="btn-primary" onclick="downloadDocumentForVerification()" id="downloadVerifyBtn">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                <polyline points="7 10 12 15 17 10"></polyline>
+                <line x1="12" y1="15" x2="12" y2="3"></line>
+              </svg>
+              Download & View Document
+            </button>
+          </div>
+
+          <!-- Verification Form -->
+          <div class="verification-form-section">
+            <h4>Verification Decision</h4>
+            <div class="form-group">
+              <label for="verificationComments">Comments (Optional)</label>
+              <textarea id="verificationComments" rows="3" placeholder="Add comments about this document..."></textarea>
+            </div>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button class="btn-secondary" onclick="closeDocumentVerificationModal()">Cancel</button>
+          <button class="btn-danger" onclick="verifyDocumentAction('Rejected')">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <line x1="18" y1="6" x2="6" y2="18"></line>
+              <line x1="6" y1="6" x2="18" y2="18"></line>
+            </svg>
+            Reject
+          </button>
+          <button class="btn-success" onclick="verifyDocumentAction('Verified')">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <polyline points="20 6 9 17 4 12"></polyline>
+            </svg>
+            Verify
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- My Documents Modal -->
+    <div id="myDocumentsModal" class="modal">
+      <div class="modal-content modal-large">
+        <div class="modal-header">
+          <h3>My Documents</h3>
+          <button class="modal-close" onclick="closeMyDocumentsModal()">&times;</button>
+        </div>
+        <div class="modal-body">
+          <div class="document-upload-section">
+            <h4>Upload New Document</h4>
+            <form id="documentUploadForm" onsubmit="uploadDocument(event)">
+              <div class="form-row">
+                <div class="form-group">
+                  <label for="documentType">Document Type <span style="color: #ff6b6b;">*</span></label>
+                  <select id="documentType" required>
+                    <option value="">Select document type</option>
+                  </select>
+                </div>
+                <div class="form-group">
+                  <label for="documentFile">Choose File <span style="color: #ff6b6b;">*</span></label>
+                  <input type="file" id="documentFile" accept=".pdf,.jpg,.jpeg,.png,.doc,.docx" required>
+                  <small class="form-hint">Max file size: 10MB. Allowed: PDF, JPG, PNG, DOC, DOCX</small>
+                </div>
+              </div>
+              <button type="submit" class="btn-primary" id="uploadDocumentBtn">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                  <polyline points="17 8 12 3 7 8"></polyline>
+                  <line x1="12" y1="3" x2="12" y2="15"></line>
+                </svg>
+                Upload Document
+              </button>
+            </form>
+          </div>
+          <div class="documents-list-section">
+            <h4>Your Documents</h4>
+            <div id="documentsTableContainer">
+              <table class="documents-table" id="documentsTable">
+                <thead>
+                  <tr>
+                    <th>Document Type</th>
+                    <th>File Name</th>
+                    <th>Upload Date</th>
+                    <th>Status</th>
+                    <th>Actions</th>
+                  </tr>
+                </thead>
+                <tbody id="documentsTableBody">
+                  <tr class="no-documents-row">
+                    <td colspan="5" style="text-align: center; padding: 40px;">
+                      <svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                        stroke-width="1.5" style="margin: 0 auto; display: block; opacity: 0.3;">
+                        <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+                        <polyline points="14 2 14 8 20 8"></polyline>
+                      </svg>
+                      <p style="margin-top: 16px; color: var(--text-secondary);">No documents uploaded yet</p>
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <?!= include('JavaScript'); ?>
+
+</body>
+
+</html>

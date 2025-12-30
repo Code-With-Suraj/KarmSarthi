@@ -1,0 +1,3784 @@
+<script>
+    // ============================================
+    // LEAVE MANAGEMENT SYSTEM - CLIENT SIDE LOGIC
+    // ============================================
+
+    let currentRole = 'employee';
+    let employeeData = null;
+    let pendingAction = null;
+
+    // Initialize on page load
+    window.addEventListener('DOMContentLoaded', function () {
+        setTimeout(() => {
+            document.getElementById('loadingScreen').style.display = 'none';
+            document.getElementById('mainContainer').style.display = 'block';
+            initializeHomePage();
+            loadEmployeeData();
+            checkAndShowBirthdayWish();
+            loadUpcomingEvents();
+        }, 2000);
+
+        // Set minimum date to today
+        const today = new Date().toISOString().split('T')[0];
+        document.getElementById('startDate').setAttribute('min', today);
+        document.getElementById('endDate').setAttribute('min', today);
+
+        // Add date change listeners
+        document.getElementById('startDate').addEventListener('change', function () {
+            calculateLeaveDays();
+            updateDayTypeOptions();
+        });
+        document.getElementById('endDate').addEventListener('change', function () {
+            calculateLeaveDays();
+            updateDayTypeOptions();
+        });
+        document.getElementById('dayType').addEventListener('change', calculateLeaveDays);
+
+        // Initialize notifications
+        loadNotifications();
+        // Poll for new notifications every 30 seconds
+        setInterval(loadNotifications, 30000);
+
+        // Close notification dropdown when clicking outside
+        document.addEventListener('click', function (event) {
+            const notificationContainer = document.querySelector('.notification-container');
+            const notificationDropdown = document.getElementById('notificationDropdown');
+            if (notificationContainer && !notificationContainer.contains(event.target)) {
+                notificationDropdown.classList.remove('active');
+            }
+        });
+
+        // Add work mode change listener
+        setTimeout(() => {
+            const workModeSelect = document.getElementById('workModeSelect');
+            if (workModeSelect) {
+                workModeSelect.addEventListener('change', function () {
+                    updateWorkModeHint(this.value);
+                });
+            }
+        }, 2100); // After page loads
+    });
+
+    // ============================================
+    // HOME PAGE FUNCTIONS
+    // ============================================
+
+    // Initialize home page
+    function initializeHomePage() {
+        updateGreeting();
+        updateDateTime();
+        // Update datetime every minute
+        setInterval(updateDateTime, 60000);
+    }
+
+    // Update greeting based on time of day
+    function updateGreeting() {
+        const hour = new Date().getHours();
+        const greetingText = document.getElementById('greetingText');
+
+        if (hour < 12) {
+            greetingText.textContent = 'Good Morning';
+        } else if (hour < 17) {
+            greetingText.textContent = 'Good Afternoon';
+        } else {
+            greetingText.textContent = 'Good Evening';
+        }
+    }
+
+    // Update current date and time
+    function updateDateTime() {
+        const now = new Date();
+        const options = {
+            weekday: 'long',
+            year: 'numeric',
+            month: 'long',
+            day: 'numeric',
+            hour: '2-digit',
+            minute: '2-digit'
+        };
+        const dateTimeString = now.toLocaleDateString('en-US', options);
+        document.getElementById('currentDateTime').textContent = dateTimeString;
+    }
+
+    // Update home page stats
+    function updateHomeStats(data) {
+        // Update available leaves
+        document.getElementById('homeAvailableLeaves').textContent = data.leavesAvailable;
+
+        // Get pending requests count
+        google.script.run
+            .withSuccessHandler(function (requests) {
+                const pendingCount = requests.filter(r => r.status === 'Pending').length;
+                document.getElementById('homePendingRequests').textContent = pendingCount;
+            })
+            .getLeaveRequests();
+
+        // Get approved leaves count
+        google.script.run
+            .withSuccessHandler(function (requests) {
+                const approvedCount = requests.filter(r => r.status === 'Approved').length;
+                document.getElementById('homeApprovedLeaves').textContent = approvedCount;
+            })
+            .getLeaveRequests();
+
+        // Get upcoming holidays count
+        google.script.run
+            .withSuccessHandler(function (holidays) {
+                document.getElementById('homeUpcomingHolidays').textContent = holidays.length;
+            })
+            .getUpcomingHolidays(30);
+
+        // Get current month attendance stats with better error handling
+        google.script.run
+            .withSuccessHandler(function (stats) {
+                if (stats && stats.presentDays !== undefined) {
+                    document.getElementById('homePresentDays').textContent = stats.presentDays;
+                    document.getElementById('homeAbsentDays').textContent = stats.absentDays;
+                    document.getElementById('homeAttendanceMonth').textContent = stats.month;
+                } else {
+                    // Set default values if stats not available
+                    document.getElementById('homePresentDays').textContent = '0';
+                    document.getElementById('homeAbsentDays').textContent = '0';
+                    document.getElementById('homeAttendanceMonth').textContent = 'this month';
+                }
+            })
+            .withFailureHandler(function (error) {
+                console.error('Error loading attendance stats:', error);
+                // Set default values on error
+                document.getElementById('homePresentDays').textContent = '0';
+                document.getElementById('homeAbsentDays').textContent = '0';
+                document.getElementById('homeAttendanceMonth').textContent = 'this month';
+            })
+            .getCurrentMonthAttendanceStats();
+    }
+
+    // Navigate to different sections
+    function navigateToSection(section) {
+        // Hide home view
+        document.getElementById('homeView').style.display = 'none';
+
+        if (section === 'employee') {
+            switchRole('employee');
+        } else if (section === 'myRequests') {
+            switchRole('employee');
+            // Scroll to requests section
+            setTimeout(() => {
+                const requestsSection = document.querySelector('.requests-section');
+                if (requestsSection) {
+                    requestsSection.scrollIntoView({ behavior: 'smooth' });
+                }
+            }, 100);
+        } else if (section === 'calendar') {
+            // Show holiday calendar
+            document.getElementById('homeView').style.display = 'block';
+            showHolidayCalendar();
+        }
+    }
+
+    // Navigate to home page (for logo click)
+    function navigateToHome() {
+        // Show home view
+        document.getElementById('homeView').style.display = 'block';
+        // Hide other views
+        document.getElementById('employeeView').style.display = 'none';
+        document.getElementById('managerView').style.display = 'none';
+        document.getElementById('attendanceView').style.display = 'none';
+        // Reset role buttons
+        document.getElementById('employeeBtn').classList.remove('active');
+        document.getElementById('managerBtn').classList.remove('active');
+        document.getElementById('attendanceBtn').classList.remove('active');
+    }
+
+    // ============================================
+    // NOTIFICATION FUNCTIONS
+    // ============================================
+
+    // Load notifications for current user
+    function loadNotifications() {
+        google.script.run
+            .withSuccessHandler(function (data) {
+                updateNotificationBadge(data.unreadCount);
+                renderNotifications(data.notifications);
+            })
+            .withFailureHandler(function (error) {
+                console.error('Error loading notifications:', error);
+            })
+            .getCurrentUserNotifications();
+    }
+
+    // Update notification badge
+    function updateNotificationBadge(count) {
+        const badge = document.getElementById('notificationBadge');
+        if (count > 0) {
+            badge.textContent = count > 99 ? '99+' : count;
+            badge.classList.remove('hidden');
+        } else {
+            badge.classList.add('hidden');
+        }
+    }
+
+    // Render notifications in dropdown
+    function renderNotifications(notifications) {
+        const listContainer = document.getElementById('notificationList');
+
+        if (!notifications || notifications.length === 0) {
+            listContainer.innerHTML = `
+                <div class="no-notifications">
+                    <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                        <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"></path>
+                        <path d="M13.73 21a2 2 0 0 1-3.46 0"></path>
+                    </svg>
+                    <p>No notifications yet</p>
+                </div>
+            `;
+            return;
+        }
+
+        listContainer.innerHTML = notifications.map(notif => {
+            const unreadClass = !notif.readStatus ? 'unread' : '';
+            const icon = getNotificationIcon(notif.eventType);
+            const timeAgo = getTimeAgo(notif.timestamp);
+
+            return `
+                <div class="notification-item ${unreadClass}" onclick="handleNotificationClick('${notif.notificationId}', '${notif.requestId}')">
+                    <div class="notification-content">
+                        <div class="notification-icon ${notif.eventType}">
+                            ${icon}
+                        </div>
+                        <div class="notification-details">
+                            <div class="notification-title">${notif.senderName}</div>
+                            <div class="notification-message">${notif.message}</div>
+                            <div class="notification-time">${timeAgo}</div>
+                        </div>
+                    </div>
+                </div>
+            `;
+        }).join('');
+
+        // Add "Clear All" button at the bottom
+        listContainer.innerHTML += `
+            <div class="clear-notifications-container">
+                <button class="clear-notifications-btn" onclick="clearAllNotifications()">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M3 6h18"></path>
+                        <path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"></path>
+                        <path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"></path>
+                    </svg>
+                    Clear Notifications
+                </button>
+            </div>
+        `;
+    }
+
+    // Clear all notifications
+    function clearAllNotifications() {
+        if (!confirm('Are you sure you want to clear all notifications?')) {
+            return;
+        }
+
+        const btn = document.querySelector('.clear-notifications-btn');
+        const originalText = btn.innerHTML;
+        btn.innerHTML = 'Clearing...';
+        btn.disabled = true;
+
+        google.script.run
+            .withSuccessHandler(function (response) {
+                if (response.success) {
+                    showToast(response.message, 'success');
+                    // Refresh notifications (which will show empty state)
+                    loadNotifications();
+                } else {
+                    showToast(response.message, 'error');
+                    btn.innerHTML = originalText;
+                    btn.disabled = false;
+                }
+            })
+            .withFailureHandler(function (error) {
+                showToast('Error: ' + error.message, 'error');
+                btn.innerHTML = originalText;
+                btn.disabled = false;
+            })
+            .clearAllNotifications();
+    }
+
+    // Get notification icon based on event type
+    function getNotificationIcon(eventType) {
+        const icons = {
+            'new_request': '📝',
+            'updated': '✏️',
+            'cancelled': '❌',
+            'approved': '✅',
+            'rejected': '⛔'
+        };
+        return icons[eventType] || '🔔';
+    }
+
+    // Get time ago string
+    function getTimeAgo(timestamp) {
+        const now = new Date();
+        const notifTime = new Date(timestamp);
+        const diffMs = now - notifTime;
+        const diffMins = Math.floor(diffMs / 60000);
+        const diffHours = Math.floor(diffMs / 3600000);
+        const diffDays = Math.floor(diffMs / 86400000);
+
+        if (diffMins < 1) return 'Just now';
+        if (diffMins < 60) return `${diffMins}m ago`;
+        if (diffHours < 24) return `${diffHours}h ago`;
+        if (diffDays < 7) return `${diffDays}d ago`;
+        return notifTime.toLocaleDateString();
+    }
+
+    // Toggle notification dropdown
+    function toggleNotificationDropdown() {
+        const dropdown = document.getElementById('notificationDropdown');
+        dropdown.classList.toggle('active');
+    }
+
+    // Handle notification click - show full request details
+    function handleNotificationClick(notificationId, requestId) {
+        // Mark notification as read
+        google.script.run
+            .withSuccessHandler(function () {
+                loadNotifications(); // Refresh notifications
+            })
+            .markNotificationAsRead(notificationId);
+
+        // Fetch and display full leave request details
+        google.script.run
+            .withSuccessHandler(function (request) {
+                if (request) {
+                    showLeaveRequestDetailsModal(request);
+                } else {
+                    showToast('Leave request not found', 'error');
+                }
+            })
+            .withFailureHandler(function (error) {
+                showToast('Error loading request details: ' + error.message, 'error');
+            })
+            .getLeaveRequestDetails(requestId);
+
+        // Close dropdown
+        document.getElementById('notificationDropdown').classList.remove('active');
+    }
+
+    // Show leave request details in a modal
+    function showLeaveRequestDetailsModal(request) {
+        const statusClass = request.status.toLowerCase();
+        const statusIcon = {
+            'pending': '⏳',
+            'approved': '✅',
+            'rejected': '⛔',
+            'cancelled': '❌'
+        }[statusClass] || '📄';
+
+        const modalHTML = `
+            <div class="modal active" id="requestDetailsModal">
+                <div class="modal-content">
+                    <div class="modal-header">
+                        <h3>Leave Request Details</h3>
+                        <button class="modal-close" onclick="closeRequestDetailsModal()">&times;</button>
+                    </div>
+                    <div class="modal-body">
+                        <div class="request-details-grid">
+                            <div class="detail-item">
+                                <span class="detail-label">Request ID</span>
+                                <span class="detail-value">${request.requestId}</span>
+                            </div>
+                            <div class="detail-item">
+                                <span class="detail-label">Status</span>
+                                <span class="status-badge status-${statusClass}">${statusIcon} ${request.status}</span>
+                            </div>
+                            <div class="detail-item">
+                                <span class="detail-label">Employee</span>
+                                <span class="detail-value">${request.employeeName}</span>
+                            </div>
+                            <div class="detail-item">
+                                <span class="detail-label">Email</span>
+                                <span class="detail-value">${request.employeeEmail}</span>
+                            </div>
+                            <div class="detail-item">
+                                <span class="detail-label">Leave Type</span>
+                                <span class="leave-type-badge">${request.leaveType}</span>
+                            </div>
+                            <div class="detail-item">
+                                <span class="detail-label">Day Type</span>
+                                <span class="detail-value">${request.dayType}</span>
+                            </div>
+                            <div class="detail-item">
+                                <span class="detail-label">Start Date</span>
+                                <span class="detail-value">${request.startDate}</span>
+                            </div>
+                            <div class="detail-item">
+                                <span class="detail-label">End Date</span>
+                                <span class="detail-value">${request.endDate}</span>
+                            </div>
+                            <div class="detail-item">
+                                <span class="detail-label">Duration</span>
+                                <span class="days-badge">
+                                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                        <circle cx="12" cy="12" r="10"></circle>
+                                        <polyline points="12 6 12 12 16 14"></polyline>
+                                    </svg>
+                                    ${request.units} ${request.units === 1 ? 'day' : 'days'}
+                                </span>
+                            </div>
+                            <div class="detail-item">
+                                <span class="detail-label">Applied On</span>
+                                <span class="detail-value">${request.appliedDate}</span>
+                            </div>
+                            ${request.actionDate ? `
+                                <div class="detail-item">
+                                    <span class="detail-label">Action Date</span>
+                                    <span class="detail-value">${request.actionDate}</span>
+                                </div>
+                            ` : ''}
+                            <div class="detail-item full-width">
+                                <span class="detail-label">Reason</span>
+                                <div class="reason-text">"${request.reason}"</div>
+                            </div>
+                            ${request.managerComments ? `
+                                <div class="detail-item full-width">
+                                    <span class="detail-label">Manager Comments</span>
+                                    <div class="reason-text"><strong>Manager:</strong> ${request.managerComments}</div>
+                                </div>
+                            ` : ''}
+                        </div>
+                    </div>
+                    <div class="modal-footer">
+                        <button class="btn-secondary" onclick="closeRequestDetailsModal()">Close</button>
+                    </div>
+                </div>
+            </div>
+        `;
+
+        // Remove existing modal if any
+        const existingModal = document.getElementById('requestDetailsModal');
+        if (existingModal) {
+            existingModal.remove();
+        }
+
+        // Add modal to body
+        document.body.insertAdjacentHTML('beforeend', modalHTML);
+    }
+
+    // Close request details modal
+    function closeRequestDetailsModal() {
+        const modal = document.getElementById('requestDetailsModal');
+        if (modal) {
+            modal.classList.remove('active');
+            setTimeout(() => modal.remove(), 300);
+        }
+    }
+
+    // Mark all notifications as read
+    function markAllNotificationsAsRead() {
+        google.script.run
+            .withSuccessHandler(function (response) {
+                if (response.success) {
+                    showToast(response.message, 'success');
+                    loadNotifications();
+                }
+            })
+            .withFailureHandler(function (error) {
+                showToast('Error marking notifications as read: ' + error.message, 'error');
+            })
+            .markAllNotificationsAsRead(Session.getActiveUser().getEmail());
+    }
+
+
+
+    // Switch between Employee, Manager, Attendance, and HR views
+    function switchRole(role) {
+        currentRole = role;
+
+        // Update button states
+        document.getElementById('employeeBtn').classList.toggle('active', role === 'employee');
+        document.getElementById('attendanceBtn').classList.toggle('active', role === 'attendance');
+        document.getElementById('managerBtn').classList.toggle('active', role === 'manager');
+        document.getElementById('hrBtn').classList.toggle('active', role === 'hr');
+
+        // Update view visibility
+        document.getElementById('homeView').style.display = 'none';
+        document.getElementById('employeeView').style.display = role === 'employee' ? 'block' : 'none';
+        document.getElementById('attendanceView').style.display = role === 'attendance' ? 'block' : 'none';
+        document.getElementById('managerView').style.display = role === 'manager' ? 'block' : 'none';
+        document.getElementById('hrView').style.display = role === 'hr' ? 'block' : 'none';
+
+        // Load appropriate data
+        if (role === 'employee') {
+            loadEmployeeData();
+        } else if (role === 'manager') {
+            loadManagerData();
+        } else if (role === 'hr') {
+            loadHRData();
+        } else if (role === 'attendance') {
+            loadAttendanceData();
+            // Load regularization history for employee
+            loadRegularizationHistory();
+        }
+    }
+
+    // Load employee data
+    function loadEmployeeData() {
+        google.script.run
+            .withSuccessHandler(function (data) {
+                if (data) {
+                    employeeData = data;
+                    updateEmployeeUI(data);
+                    loadLeaveRequests();
+                } else {
+                    showToast('Employee not found. Please contact HR to set up your account.', 'error');
+                }
+            })
+            .withFailureHandler(function (error) {
+                showToast('Error loading employee data: ' + error.message, 'error');
+            })
+            .getEmployeeData();
+    }
+
+    // Update employee UI with data
+    function updateEmployeeUI(data) {
+        // Update user info
+        const nameParts = data.name.split(' ');
+        const initials = nameParts.map(n => n[0]).join('').toUpperCase();
+        document.getElementById('userAvatar').textContent = initials;
+        document.getElementById('userName').textContent = data.name;
+        document.getElementById('userEmail').textContent = data.email;
+
+        // Update home page greeting name
+        document.getElementById('greetingName').textContent = data.name;
+
+        // Update leave balance
+        document.getElementById('totalLeaves').textContent = data.totalLeaves;
+        document.getElementById('usedLeaves').textContent = data.leavesUsed;
+        document.getElementById('availableLeaves').textContent = data.leavesAvailable;
+        document.getElementById('availableLeaves2').textContent = data.leavesAvailable;
+
+        // Update progress bar
+        const usedPercentage = (data.leavesUsed / data.totalLeaves) * 100;
+        document.getElementById('progressFill').style.width = usedPercentage + '%';
+        document.getElementById('progressText').textContent = Math.round(usedPercentage) + '% used';
+
+        // Update home page stats
+        updateHomeStats(data);
+
+        // Show/Hide HR View button based on department
+        const hrBtn = document.getElementById('hrBtn');
+        if (data.department && data.department.toUpperCase() === 'HR') {
+            hrBtn.style.display = 'flex';
+        } else {
+            hrBtn.style.display = 'none';
+        }
+    }
+
+    // Load leave requests for employee
+    function loadLeaveRequests() {
+        google.script.run
+            .withSuccessHandler(function (requests) {
+                const container = document.getElementById('leaveRequestsContainer');
+
+                if (requests.length === 0) {
+                    container.innerHTML = `
+                        <div class="no-requests">
+                            <svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                                <rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect>
+                                <line x1="16" y1="2" x2="16" y2="6"></line>
+                                <line x1="8" y1="2" x2="8" y2="6"></line>
+                                <line x1="3" y1="10" x2="21" y2="10"></line>
+                            </svg>
+                            <p>No leave requests found</p>
+                            <span>Your leave requests will appear here</span>
+                        </div>
+                    `;
+                    return;
+                }
+
+                container.innerHTML = requests.map(req => {
+                    // Determine which action buttons to show based on status
+                    let actionButtons = '';
+                    if (req.status === 'Pending') {
+                        // Pending leaves can be edited or cancelled
+                        actionButtons = `
+                            <div class="card-actions">
+                                <button class="btn-warning btn-sm" onclick="openEditModal('${req.requestId}', '${req.leaveType}', '${req.startDate}', '${req.endDate}', \`${req.reason}\`, '${req.dayType}')">
+                                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                        <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path>
+                                        <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path>
+                                    </svg>
+                                    Edit
+                                </button>
+                                <button class="btn-outline btn-sm" onclick="openCancelModal('${req.requestId}', '${req.status}')">
+                                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                        <line x1="18" y1="6" x2="6" y2="18"></line>
+                                        <line x1="6" y1="6" x2="18" y2="18"></line>
+                                    </svg>
+                                    Cancel
+                                </button>
+                            </div>
+                        `;
+                    } else if (req.status === 'Approved') {
+                        // Approved leaves can only be cancelled (with reason)
+                        actionButtons = `
+                            <div class="card-actions">
+                                <button class="btn-outline btn-sm" onclick="openCancelModal('${req.requestId}', '${req.status}')">
+                                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                        <line x1="18" y1="6" x2="6" y2="18"></line>
+                                        <line x1="6" y1="6" x2="18" y2="18"></line>
+                                    </svg>
+                                    Cancel Leave
+                                </button>
+                            </div>
+                        `;
+                    }
+                    // Rejected and Cancelled leaves have no action buttons
+
+                    return `
+                        <div class="request-card">
+                            <div class="card-header">
+                                <span class="card-id">${req.requestId}</span>
+                                <span class="status-badge status-${req.status.toLowerCase()}">${req.status}</span>
+                            </div>
+                            <div class="card-body">
+                                <div class="card-row">
+                                    <span class="card-label">Leave Type</span>
+                                    <span class="leave-type-badge">${req.leaveType}</span>
+                                </div>
+                                <div class="card-row">
+                                    <span class="card-label">Duration</span>
+                                    <span class="days-badge">
+                                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                            <circle cx="12" cy="12" r="10"></circle>
+                                            <polyline points="12 6 12 12 16 14"></polyline>
+                                        </svg>
+                                        ${req.units} ${req.units === 1 ? 'day' : 'days'} (${req.dayType})
+                                    </span>
+                                </div>
+                                <div class="card-row">
+                                    <span class="card-label">From</span>
+                                    <span class="card-value">${req.startDate}</span>
+                                </div>
+                                <div class="card-row">
+                                    <span class="card-label">To</span>
+                                    <span class="card-value">${req.endDate}</span>
+                                </div>
+                                <div class="card-row">
+                                    <span class="card-label">Applied On</span>
+                                    <span class="card-value">${req.appliedDate}</span>
+                                </div>
+                                ${req.reason ? `<div class="reason-text">"${req.reason}"</div>` : ''}
+                                ${req.managerComments ? `<div class="reason-text"><strong>Manager:</strong> ${req.managerComments}</div>` : ''}
+                            </div>
+                            ${actionButtons}
+                        </div>
+                    `;
+                }).join('');
+            })
+            .withFailureHandler(function (error) {
+                showToast('Error loading leave requests: ' + error.message, 'error');
+            })
+            .getLeaveRequests();
+    }
+
+    // Load manager data
+    function loadManagerData() {
+        google.script.run
+            .withSuccessHandler(function (requests) {
+                const container = document.getElementById('pendingRequestsContainer');
+                document.getElementById('pendingCount').textContent = requests.length + ' pending';
+
+                if (requests.length === 0) {
+                    container.innerHTML = `
+                        <div class="no-requests">
+                            <svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                                <path d="M9 11l3 3L22 4"></path>
+                                <path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"></path>
+                            </svg>
+                            <p>No pending requests</p>
+                            <span>Pending leave requests will appear here</span>
+                        </div>
+                    `;
+                    return;
+                }
+
+                container.innerHTML = requests.map(req => {
+                    const nameParts = req.employeeName.split(' ');
+                    const initials = nameParts.map(n => n[0]).join('').toUpperCase();
+
+                    return `
+                        <div class="request-card">
+                            <div class="employee-info">
+                                <div class="employee-avatar">${initials}</div>
+                                <div class="employee-details">
+                                    <div class="employee-name">${req.employeeName}</div>
+                                    <div class="employee-email">${req.employeeEmail}</div>
+                                </div>
+                            </div>
+                            <div class="card-header">
+                                <span class="card-id">${req.requestId}</span>
+                                <span class="leave-type-badge">${req.leaveType}</span>
+                            </div>
+                            <div class="card-body">
+                                <div class="card-row">
+                                    <span class="card-label">Duration</span>
+                                    <span class="days-badge">
+                                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                            <circle cx="12" cy="12" r="10"></circle>
+                                            <polyline points="12 6 12 12 16 14"></polyline>
+                                        </svg>
+                                        ${req.units} ${req.units === 1 ? 'day' : 'days'} (${req.dayType})
+                                    </span>
+                                </div>
+                                <div class="card-row">
+                                    <span class="card-label">From</span>
+                                    <span class="card-value">${req.startDate}</span>
+                                </div>
+                                <div class="card-row">
+                                    <span class="card-label">To</span>
+                                    <span class="card-value">${req.endDate}</span>
+                                </div>
+                                <div class="card-row">
+                                    <span class="card-label">Applied On</span>
+                                    <span class="card-value">${req.appliedDate}</span>
+                                </div>
+                                ${req.reason ? `<div class="reason-text">"${req.reason}"</div>` : ''}
+                            </div>
+                            <div class="card-actions">
+                                <button class="btn-success" onclick="openApprovalModal('${req.requestId}', 'approve')">
+                                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                        <polyline points="20 6 9 17 4 12"></polyline>
+                                    </svg>
+                                    Approve
+                                </button>
+                                <button class="btn-danger" onclick="openApprovalModal('${req.requestId}', 'reject')">
+                                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                        <line x1="18" y1="6" x2="6" y2="18"></line>
+                                        <line x1="6" y1="6" x2="18" y2="18"></line>
+                                    </svg>
+                                    Reject
+                                </button>
+                            </div>
+                        </div>
+                    `;
+                }).join('');
+            })
+            .withFailureHandler(function (error) {
+                showToast('Error loading pending requests: ' + error.message, 'error');
+            })
+            .getManagerData();
+
+        // Load manager regularization requests
+        loadManagerRegularizationRequests();
+
+        // Load team calendar for current month
+        loadTeamCalendar();
+
+        // Load today's team stats
+        loadTodayTeamStats();
+    }
+
+    // Load HR data
+    function loadHRData() {
+        // Load HR pending documents
+        loadHRPendingDocuments();
+    }
+
+    // ============================================
+    // TEAM CALENDAR FUNCTIONS
+    // ============================================
+
+    let currentCalendarMonth = new Date().getMonth();
+    let currentCalendarYear = new Date().getFullYear();
+
+    // Load team calendar for a specific month/year
+    function loadTeamCalendar(month, year) {
+        // Use current month/year if not specified
+        if (month === undefined) month = currentCalendarMonth;
+        if (year === undefined) year = currentCalendarYear;
+
+        // Update current calendar state
+        currentCalendarMonth = month;
+        currentCalendarYear = year;
+
+        // Update month/year display
+        const monthNames = ['January', 'February', 'March', 'April', 'May', 'June',
+            'July', 'August', 'September', 'October', 'November', 'December'];
+        document.getElementById('calendarMonthYear').textContent = `${monthNames[month]} ${year}`;
+
+        // Load calendar data from backend
+        google.script.run
+            .withSuccessHandler(function (data) {
+                renderCalendar(data, month, year);
+
+                // Update team size stat
+                document.getElementById('totalTeamCount').textContent = data.teamSize;
+            })
+            .withFailureHandler(function (error) {
+                showToast('Error loading team calendar: ' + error.message, 'error');
+            })
+            .getTeamLeaveCalendar(month, year);
+    }
+
+    // Render the calendar grid
+    function renderCalendar(data, month, year) {
+        const calendarGrid = document.getElementById('calendarGrid');
+        const firstDay = new Date(year, month, 1).getDay();
+        const daysInMonth = new Date(year, month + 1, 0).getDate();
+
+        let html = '';
+
+        // Add empty cells for days before the first day of the month
+        for (let i = 0; i < firstDay; i++) {
+            html += '<div class="calendar-day calendar-day-empty"></div>';
+        }
+
+        // Add cells for each day of the month
+        for (let day = 1; day <= daysInMonth; day++) {
+            const date = new Date(year, month, day);
+            const dateKey = formatDateKey(date);
+            const isToday = isDateToday(date);
+            const isWeekend = date.getDay() === 0; // Sunday
+
+            // Get leave data for this date
+            const leavesOnDate = data.calendarData[dateKey] || [];
+            const leaveCount = leavesOnDate.length;
+
+            // Build CSS classes
+            let dayClasses = 'calendar-day';
+            if (isToday) dayClasses += ' calendar-day-today';
+            if (isWeekend) dayClasses += ' calendar-day-weekend';
+            if (leaveCount > 0) dayClasses += ' calendar-day-has-leave';
+
+            // Build leave indicators
+            let leaveIndicators = '';
+            if (leaveCount > 0) {
+                const displayCount = Math.min(leaveCount, 3);
+                for (let i = 0; i < displayCount; i++) {
+                    const leave = leavesOnDate[i];
+                    const statusClass = leave.status === 'Approved' ? 'leave-dot-approved' : 'leave-dot-pending';
+                    leaveIndicators += `<div class="leave-dot ${statusClass}" title="${leave.employeeName} - ${leave.leaveType} (${leave.status})"></div>`;
+                }
+                if (leaveCount > 3) {
+                    leaveIndicators += `<div class="leave-dot-more">+${leaveCount - 3}</div>`;
+                }
+            }
+
+            // Build tooltip content
+            let tooltipContent = '';
+            if (leaveCount > 0) {
+                tooltipContent = leavesOnDate.map(leave =>
+                    `${leave.employeeName} - ${leave.leaveType} (${leave.dayType}, ${leave.status})`
+                ).join('\n');
+            }
+
+            html += `
+                <div class="${dayClasses}" title="${tooltipContent}">
+                    <div class="calendar-day-number">${day}</div>
+                    <div class="calendar-day-leaves">${leaveIndicators}</div>
+                </div>
+            `;
+        }
+
+        calendarGrid.innerHTML = html;
+    }
+
+    // Navigate to previous/next month
+    function navigateCalendar(direction) {
+        currentCalendarMonth += direction;
+
+        if (currentCalendarMonth < 0) {
+            currentCalendarMonth = 11;
+            currentCalendarYear--;
+        } else if (currentCalendarMonth > 11) {
+            currentCalendarMonth = 0;
+            currentCalendarYear++;
+        }
+
+        loadTeamCalendar(currentCalendarMonth, currentCalendarYear);
+    }
+
+    // Load today's team availability stats
+    function loadTodayTeamStats() {
+        const today = new Date();
+        const dateKey = formatDateKey(today);
+
+        google.script.run
+            .withSuccessHandler(function (stats) {
+                document.getElementById('availableToday').textContent = stats.available;
+                document.getElementById('onLeaveToday').textContent = stats.onLeave;
+            })
+            .withFailureHandler(function (error) {
+                console.error('Error loading team stats:', error);
+            })
+            .getTeamAvailabilityStats(dateKey);
+    }
+
+    // Helper function to format date as YYYY-MM-DD
+    function formatDateKey(date) {
+        const year = date.getFullYear();
+        const month = String(date.getMonth() + 1).padStart(2, '0');
+        const day = String(date.getDate()).padStart(2, '0');
+        return `${year}-${month}-${day}`;
+    }
+
+    // Helper function to check if date is today
+    function isDateToday(date) {
+        const today = new Date();
+        return date.getDate() === today.getDate() &&
+            date.getMonth() === today.getMonth() &&
+            date.getFullYear() === today.getFullYear();
+    }
+
+    // Update day type options based on date selection
+    function updateDayTypeOptions() {
+        const startDate = document.getElementById('startDate').value;
+        const endDate = document.getElementById('endDate').value;
+        const dayType = document.getElementById('dayType');
+        const hint = document.getElementById('dayTypeHint');
+
+        if (startDate && endDate && startDate !== endDate) {
+            // Multi-day: disable half day options
+            dayType.value = 'Full Day';
+            Array.from(dayType.options).forEach(option => {
+                if (option.value !== 'Full Day') {
+                    option.disabled = true;
+                }
+            });
+            hint.style.display = 'block';
+        } else {
+            // Single day or no dates: enable all options
+            Array.from(dayType.options).forEach(option => {
+                option.disabled = false;
+            });
+            hint.style.display = 'none';
+        }
+    }
+
+    // Calculate leave days (business days only - excluding Sundays and holidays)
+    function calculateLeaveDays() {
+        const startDate = document.getElementById('startDate').value;
+        const endDate = document.getElementById('endDate').value;
+        const dayType = document.getElementById('dayType').value;
+        const infoDiv = document.getElementById('leaveDaysInfo');
+        const warningBox = document.getElementById('leaveWarningBox');
+
+        if (startDate && endDate) {
+            const start = new Date(startDate);
+            const end = new Date(endDate);
+
+            if (end < start) {
+                infoDiv.style.display = 'none';
+                warningBox.style.display = 'none';
+                document.getElementById('endDate').value = '';
+                showToast('End date must be after start date', 'error');
+                return;
+            }
+
+            // Handle half day (single date only)
+            if ((dayType === 'First Half' || dayType === 'Second Half') && startDate === endDate) {
+                const units = 0.5;
+                infoDiv.style.display = 'flex';
+                document.getElementById('leaveDaysText').textContent = units + ' day (' + dayType + ')';
+
+                // Check if employee has sufficient leave balance
+                if (employeeData && units > employeeData.leavesAvailable) {
+                    const excessUnits = units - employeeData.leavesAvailable;
+                    warningBox.style.display = 'block';
+                    document.getElementById('warningAvailableLeaves').textContent = employeeData.leavesAvailable;
+                    document.getElementById('warningRequestedDays').textContent = units;
+                    document.getElementById('warningExcessDays').textContent = excessUnits.toFixed(1);
+                    document.getElementById('salaryDeductionConfirm').checked = false;
+                } else {
+                    warningBox.style.display = 'none';
+                }
+
+                document.getElementById('endDate').setAttribute('min', startDate);
+                return;
+            }
+
+            // Call backend to calculate business days (excluding Sundays and holidays) for full day
+            google.script.run
+                .withSuccessHandler(function (businessDays) {
+                    if (businessDays <= 0) {
+                        showToast('Selected dates contain no business days (all Sundays/holidays)', 'error');
+                        infoDiv.style.display = 'none';
+                        warningBox.style.display = 'none';
+                        return;
+                    }
+
+                    infoDiv.style.display = 'flex';
+                    document.getElementById('leaveDaysText').textContent = businessDays + ' business day' + (businessDays > 1 ? 's' : '') + ' (excluding Sundays & holidays)';
+
+                    // Check if employee has sufficient leave balance
+                    if (employeeData && businessDays > employeeData.leavesAvailable) {
+                        const excessDays = businessDays - employeeData.leavesAvailable;
+
+                        // Show warning box
+                        warningBox.style.display = 'block';
+                        document.getElementById('warningAvailableLeaves').textContent = employeeData.leavesAvailable;
+                        document.getElementById('warningRequestedDays').textContent = businessDays;
+                        document.getElementById('warningExcessDays').textContent = excessDays;
+
+                        // Uncheck the confirmation checkbox
+                        document.getElementById('salaryDeductionConfirm').checked = false;
+                    } else {
+                        // Hide warning box if balance is sufficient
+                        warningBox.style.display = 'none';
+                    }
+                })
+                .withFailureHandler(function (error) {
+                    showToast('Error calculating business days: ' + error.message, 'error');
+                })
+                .calculateLeaveDays(startDate, endDate);
+
+            // Update end date minimum
+            document.getElementById('endDate').setAttribute('min', startDate);
+        } else {
+            infoDiv.style.display = 'none';
+            warningBox.style.display = 'none';
+        }
+    }
+
+    // Submit leave request
+    function submitLeaveRequest(event) {
+        event.preventDefault();
+
+        const leaveType = document.getElementById('leaveType').value;
+        const startDate = document.getElementById('startDate').value;
+        const endDate = document.getElementById('endDate').value;
+        const reason = document.getElementById('reason').value;
+        const dayType = document.getElementById('dayType').value;
+
+        // Calculate requested days
+        const start = new Date(startDate);
+        const end = new Date(endDate);
+        const diffTime = Math.abs(end - start);
+        const requestedDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24)) + 1;
+
+        // Check if insufficient balance warning is shown
+        const warningBox = document.getElementById('leaveWarningBox');
+        if (warningBox.style.display === 'block') {
+            const confirmCheckbox = document.getElementById('salaryDeductionConfirm');
+            if (!confirmCheckbox.checked) {
+                showToast('Please confirm that you agree to salary deduction for excess leave days', 'error');
+                return;
+            }
+        }
+
+        const submitBtn = document.getElementById('submitBtn');
+        submitBtn.disabled = true;
+        submitBtn.innerHTML = '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle></svg> Submitting...';
+
+        google.script.run
+            .withSuccessHandler(function (response) {
+                submitBtn.disabled = false;
+                submitBtn.innerHTML = '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path><polyline points="22 4 12 14.01 9 11.01"></polyline></svg> Submit Leave Request';
+
+                if (response.success) {
+                    showToast(response.message, 'success');
+                    document.getElementById('leaveForm').reset();
+                    document.getElementById('leaveDaysInfo').style.display = 'none';
+                    document.getElementById('leaveWarningBox').style.display = 'none';
+                    loadLeaveRequests();
+                    loadEmployeeData(); // Refresh balance
+                } else {
+                    showToast(response.message, 'error');
+                }
+            })
+            .withFailureHandler(function (error) {
+                submitBtn.disabled = false;
+                submitBtn.innerHTML = '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path><polyline points="22 4 12 14.01 9 11.01"></polyline></svg> Submit Leave Request';
+                showToast('Error submitting request: ' + error.message, 'error');
+            })
+            .submitLeaveRequest(leaveType, startDate, endDate, reason, dayType);
+    }
+
+    // Open approval modal
+    function openApprovalModal(requestId, action) {
+        pendingAction = { requestId, action };
+
+        const modal = document.getElementById('approvalModal');
+        const title = document.getElementById('modalTitle');
+        const actionBtn = document.getElementById('modalActionBtn');
+
+        if (action === 'approve') {
+            title.textContent = 'Approve Leave Request';
+            actionBtn.textContent = 'Approve';
+            actionBtn.className = 'btn-success';
+        } else {
+            title.textContent = 'Reject Leave Request';
+            actionBtn.textContent = 'Reject';
+            actionBtn.className = 'btn-danger';
+        }
+
+        document.getElementById('managerComments').value = '';
+        modal.classList.add('active');
+    }
+
+    // Close modal
+    function closeModal() {
+        document.getElementById('approvalModal').classList.remove('active');
+        pendingAction = null;
+    }
+
+    // Confirm action
+    function confirmAction() {
+        if (!pendingAction) return;
+
+        const comments = document.getElementById('managerComments').value;
+        const actionBtn = document.getElementById('modalActionBtn');
+
+        actionBtn.disabled = true;
+        actionBtn.textContent = 'Processing...';
+
+        const callback = pendingAction.action === 'approve' ? 'approveLeave' : 'rejectLeave';
+
+        google.script.run
+            .withSuccessHandler(function (response) {
+                actionBtn.disabled = false;
+                closeModal();
+
+                if (response.success) {
+                    showToast(response.message, 'success');
+                    loadManagerData();
+                } else {
+                    showToast(response.message, 'error');
+                }
+            })
+            .withFailureHandler(function (error) {
+                actionBtn.disabled = false;
+                showToast('Error processing request: ' + error.message, 'error');
+            })
+        [callback](pendingAction.requestId, comments);
+    }
+
+    // Show toast notification
+    function showToast(message, type = 'success') {
+        const toast = document.getElementById('toast');
+        toast.textContent = message;
+        toast.className = 'toast ' + type + ' show';
+
+        setTimeout(() => {
+            toast.classList.remove('show');
+        }, 4000);
+    }
+
+    // Close modal on outside click
+    window.onclick = function (event) {
+        const approvalModal = document.getElementById('approvalModal');
+        const editModal = document.getElementById('editLeaveModal');
+        const cancelModal = document.getElementById('cancelLeaveModal');
+
+        if (event.target === approvalModal) {
+            closeModal();
+        }
+        if (event.target === editModal) {
+            closeEditModal();
+        }
+        if (event.target === cancelModal) {
+            closeCancelModal();
+        }
+    }
+
+    // ============================================
+    // BIRTHDAY WISHES FUNCTIONS
+    // ============================================
+
+    // Check and show birthday wish if today is user's birthday
+    function checkAndShowBirthdayWish() {
+        console.log('Checking for birthday wish...');
+
+        // Array of random Hindi birthday messages
+        const birthdayMessages = [
+            {
+                line1: "जन्मदिन की बहुत-बहुत शुभकामनाएँ।",
+                line2: "हमें आपके योगदान पर गर्व है और हम आशा करते हैं कि आने वाला वर्ष आपके जीवन और करियर में नई ऊँचाइयाँ लेकर आए।"
+            },
+            {
+                line1: "आपको जन्मदिन की हार्दिक शुभकामनाएँ!",
+                line2: "ईश्वर करे आपका जीवन खुशियों से भरा रहे और आप हमेशा सफलता की नई ऊंचाइयों को छुएं।"
+            },
+            {
+                line1: "जन्मदिन मुबारक हो!",
+                line2: "आपकी मेहनत और समर्पण हमारे लिए प्रेरणा है। आने वाला साल आपके लिए और भी सफल और खुशहाल हो।"
+            },
+            {
+                line1: "आपके जन्मदिन पर ढेर सारी शुभकामनाएँ!",
+                line2: "आपका योगदान हमारी टीम के लिए अमूल्य है। ईश्वर आपको हमेशा स्वस्थ और खुश रखे।"
+            },
+            {
+                line1: "जन्मदिन की बधाई हो!",
+                line2: "आपकी सकारात्मक ऊर्जा और कड़ी मेहनत से हम सभी प्रेरित होते हैं। आने वाला वर्ष आपके सपनों को साकार करे।"
+            },
+            {
+                line1: "आपको जन्मदिन की अनंत शुभकामनाएँ!",
+                line2: "आपकी उपस्थिति से हमारी टीम और मजबूत होती है। भगवान आपको सदा खुश और समृद्ध रखे।"
+            },
+            {
+                line1: "जन्मदिन की शुभकामनाएँ!",
+                line2: "आपका समर्पण और लगन सराहनीय है। यह नया साल आपके जीवन में नई खुशियाँ और सफलताएँ लेकर आए।"
+            },
+            {
+                line1: "आपको जन्मदिन की ढेर सारी बधाई!",
+                line2: "आपकी मेहनत और ईमानदारी हम सभी के लिए मिसाल है। ईश्वर आपको हमेशा आगे बढ़ाए और खुश रखे।"
+            }
+        ];
+        google.script.run
+            .withSuccessHandler(function (data) {
+                console.log('Birthday data received:', data);
+                if (data && data.isBirthday) {
+                    console.log('It is the user\'s birthday! Showing banner...');
+                    const nameElement = document.getElementById('birthdayName');
+                    const bannerElement = document.getElementById('birthdayBanner');
+
+                    if (nameElement && bannerElement) {
+                        // Select a random message
+                        const randomMessage = birthdayMessages[Math.floor(Math.random() * birthdayMessages.length)];
+
+                        // Update the banner with name and random message
+                        nameElement.textContent = data.name;
+
+                        // Update the message paragraphs
+                        const wishParagraphs = document.querySelectorAll('.birthday-wish-hindi');
+
+                        if (wishParagraphs.length >= 2) {
+                            wishParagraphs[0].textContent = randomMessage.line1;
+                            wishParagraphs[1].textContent = randomMessage.line2;
+                        }
+
+                        bannerElement.style.display = 'flex';
+                        console.log('Birthday banner displayed successfully with random message');
+                    } else {
+                        console.error('Birthday banner elements not found');
+                    }
+                } else {
+                    console.log('Not user\'s birthday or no birthday data');
+                }
+            })
+            .withFailureHandler(function (error) {
+                console.error('Birthday check failed:', error);
+                showToast('Error checking birthday: ' + error.message, 'error');
+            })
+            .getBirthdayWishData();
+    }
+
+    // ============================================
+    // HOLIDAY CALENDAR FUNCTIONS
+    // ============================================
+
+    // Show holiday calendar modal
+    function showHolidayCalendar() {
+        const modal = document.getElementById('holidayCalendarModal');
+        modal.classList.add('active');
+
+        // Load holidays
+        google.script.run
+            .withSuccessHandler(function (holidays) {
+                const container = document.getElementById('holidayCalendarContent');
+
+                if (holidays.length === 0) {
+                    container.innerHTML = `
+                        <div class="no-holidays">
+                            <svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                                <rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect>
+                                <line x1="16" y1="2" x2="16" y2="6"></line>
+                                <line x1="8" y1="2" x2="8" y2="6"></line>
+                                <line x1="3" y1="10" x2="21" y2="10"></line>
+                            </svg>
+                            <p>No holidays found</p>
+                        </div>
+                    `;
+                    return;
+                }
+
+                container.innerHTML = holidays.map(holiday => `
+                    <div class="holiday-card">
+                        <div class="holiday-date">
+                            <div class="holiday-day">${new Date(holiday.date).getDate()}</div>
+                            <div class="holiday-month">${new Date(holiday.date).toLocaleDateString('en-US', { month: 'short' })}</div>
+                        </div>
+                        <div class="holiday-info">
+                            <div class="holiday-name">${holiday.name}</div>
+                            <div class="holiday-type">${holiday.type}</div>
+                        </div>
+                    </div>
+                `).join('');
+            })
+            .withFailureHandler(function (error) {
+                showToast('Error loading holidays: ' + error.message, 'error');
+            })
+            .getAllCompanyHolidays();
+    }
+
+    // Close holiday calendar modal
+    function closeHolidayCalendar() {
+        document.getElementById('holidayCalendarModal').classList.remove('active');
+    }
+
+    // ============================================
+    // UPCOMING EVENTS FUNCTIONS
+    // ============================================
+
+    // Load all upcoming events (holidays and birthdays)
+    function loadUpcomingEvents() {
+        loadUpcomingHolidays();
+        loadUpcomingBirthdays();
+        loadUpcomingSpecialEvents();
+    }
+
+    // Load upcoming holidays
+    function loadUpcomingHolidays() {
+        google.script.run
+            .withSuccessHandler(function (holidays) {
+                const container = document.getElementById('upcomingHolidaysList');
+
+                if (holidays.length === 0) {
+                    container.innerHTML = `
+                        <div class="event-item-combined event-empty">
+                            <p>No upcoming holidays</p>
+                        </div>
+                    `;
+                    return;
+                }
+
+                // Show all holidays with scrollbar
+                container.innerHTML = holidays.map(holiday => {
+                    const holidayDate = new Date(holiday.date);
+                    const today = new Date();
+                    today.setHours(0, 0, 0, 0);
+                    const daysUntil = Math.floor((holidayDate - today) / (1000 * 60 * 60 * 24));
+
+                    let daysText = '';
+                    if (daysUntil === 0) {
+                        daysText = 'Today';
+                    } else if (daysUntil === 1) {
+                        daysText = 'Tomorrow';
+                    } else {
+                        daysText = `in ${daysUntil} days`;
+                    }
+
+                    return `
+                        <div class="event-item-combined">
+                            <div class="event-icon-combined">🏖️</div>
+                            <div class="event-details-combined">
+                                <div class="event-name-combined">${holiday.name}</div>
+                                <div class="event-date-combined">${holidayDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} • ${daysText}</div>
+                            </div>
+                        </div>
+                    `;
+                }).join('');
+            })
+            .withFailureHandler(function (error) {
+                const container = document.getElementById('upcomingHolidaysList');
+                container.innerHTML = `<div class="event-item-combined event-error"><p>Error loading</p></div>`;
+            })
+            .getUpcomingHolidays(30);
+    }
+
+    // Load upcoming birthdays
+    function loadUpcomingBirthdays() {
+        google.script.run
+            .withSuccessHandler(function (birthdays) {
+                const container = document.getElementById('upcomingBirthdaysList');
+
+                if (birthdays.length === 0) {
+                    container.innerHTML = `
+                        <div class="event-item-combined event-empty">
+                            <p>No upcoming birthdays</p>
+                        </div>
+                    `;
+                    return;
+                }
+
+                // Show all birthdays with scrollbar
+                container.innerHTML = birthdays.map(birthday => {
+                    let daysText = '';
+                    if (birthday.daysUntil === 0) {
+                        daysText = 'Today 🎉';
+                    } else if (birthday.daysUntil === 1) {
+                        daysText = 'Tomorrow';
+                    } else {
+                        daysText = `in ${birthday.daysUntil} days`;
+                    }
+
+                    return `
+                        <div class="event-item-combined">
+                            <div class="event-icon-combined">🎂</div>
+                            <div class="event-details-combined">
+                                <div class="event-name-combined">${birthday.name}</div>
+                                <div class="event-date-combined">${birthday.department ? birthday.department + ' • ' : ''}${new Date(birthday.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} • ${daysText}</div>
+                            </div>
+                        </div>
+                    `;
+                }).join('');
+            })
+            .withFailureHandler(function (error) {
+                const container = document.getElementById('upcomingBirthdaysList');
+                container.innerHTML = `<div class="event-item-combined event-error"><p>Error loading</p></div>`;
+            })
+            .getUpcomingBirthdays(30);
+    }
+
+    // Load upcoming special events
+    function loadUpcomingSpecialEvents() {
+        google.script.run
+            .withSuccessHandler(function (events) {
+                const container = document.getElementById('upcomingSpecialEventsList');
+
+                if (events.length === 0) {
+                    container.innerHTML = `
+                        <div class="event-item-combined event-empty">
+                            <p>No special events</p>
+                        </div>
+                    `;
+                    return;
+                }
+
+                // Show all events with scrollbar
+                container.innerHTML = events.map(event => {
+                    const eventDate = new Date(event.date);
+                    const today = new Date();
+                    today.setHours(0, 0, 0, 0);
+
+                    // Calculate days until (ignoring time)
+                    const eventDateOnly = new Date(eventDate);
+                    eventDateOnly.setHours(0, 0, 0, 0);
+                    const daysUntil = Math.floor((eventDateOnly - today) / (1000 * 60 * 60 * 24));
+
+                    let daysText = '';
+                    if (daysUntil === 0) {
+                        daysText = 'Today';
+                    } else if (daysUntil === 1) {
+                        daysText = 'Tomorrow';
+                    } else {
+                        daysText = `in ${daysUntil} days`;
+                    }
+
+                    // Format time
+                    const timeText = eventDate.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true });
+
+                    // Determine icon based on event type
+                    let icon = '🎉'; // Default
+                    if (event.type && event.type.toLowerCase().includes('party')) icon = '🥳';
+                    if (event.type && event.type.toLowerCase().includes('rnr')) icon = '🏆';
+                    if (event.type && event.type.toLowerCase().includes('meeting')) icon = '🤝';
+
+                    return `
+                        <div class="event-item-combined">
+                            <div class="event-icon-combined">${icon}</div>
+                            <div class="event-details-combined">
+                                <div class="event-name-combined">${event.title}</div>
+                                <div class="event-date-combined">${eventDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}, ${timeText} • ${daysText}</div>
+                            </div>
+                        </div>
+                    `;
+                }).join('');
+            })
+            .withFailureHandler(function (error) {
+                const container = document.getElementById('upcomingSpecialEventsList');
+                container.innerHTML = `<div class="event-item-combined event-error"><p>Error loading</p></div>`;
+            })
+            .getUpcomingSpecialEvents(30);
+    }
+
+    // ============================================
+    // EDIT LEAVE MODAL FUNCTIONS
+    // ============================================
+
+    // Open edit modal with pre-filled data
+    function openEditModal(requestId, leaveType, startDate, endDate, reason, dayType) {
+        document.getElementById('editRequestId').value = requestId;
+        document.getElementById('editLeaveType').value = leaveType;
+        document.getElementById('editStartDate').value = startDate;
+        document.getElementById('editEndDate').value = endDate;
+        document.getElementById('editReason').value = reason;
+        document.getElementById('editDayType').value = dayType || 'Full Day';
+
+        // Set minimum date to today
+        const today = new Date().toISOString().split('T')[0];
+        document.getElementById('editStartDate').setAttribute('min', today);
+        document.getElementById('editEndDate').setAttribute('min', startDate);
+
+        // Add date change listeners
+        document.getElementById('editStartDate').addEventListener('change', function () {
+            calculateEditLeaveDays();
+            updateEditDayTypeOptions();
+        });
+        document.getElementById('editEndDate').addEventListener('change', function () {
+            calculateEditLeaveDays();
+            updateEditDayTypeOptions();
+        });
+        document.getElementById('editDayType').addEventListener('change', calculateEditLeaveDays);
+
+        // Calculate initial days
+        updateEditDayTypeOptions();
+        calculateEditLeaveDays();
+
+        document.getElementById('editLeaveModal').classList.add('active');
+    }
+
+    // Close edit modal
+    function closeEditModal() {
+        document.getElementById('editLeaveModal').classList.remove('active');
+        document.getElementById('editLeaveForm').reset();
+        document.getElementById('editLeaveDaysInfo').style.display = 'none';
+    }
+
+    // Update day type options for edit modal
+    function updateEditDayTypeOptions() {
+        const startDate = document.getElementById('editStartDate').value;
+        const endDate = document.getElementById('editEndDate').value;
+        const dayType = document.getElementById('editDayType');
+        const hint = document.getElementById('editDayTypeHint');
+
+        if (startDate && endDate && startDate !== endDate) {
+            dayType.value = 'Full Day';
+            Array.from(dayType.options).forEach(option => {
+                if (option.value !== 'Full Day') {
+                    option.disabled = true;
+                }
+            });
+            hint.style.display = 'block';
+        } else {
+            Array.from(dayType.options).forEach(option => {
+                option.disabled = false;
+            });
+            hint.style.display = 'none';
+        }
+    }
+
+    // Calculate leave days for edit modal
+    function calculateEditLeaveDays() {
+        const startDate = document.getElementById('editStartDate').value;
+        const endDate = document.getElementById('editEndDate').value;
+        const dayType = document.getElementById('editDayType').value;
+        const infoDiv = document.getElementById('editLeaveDaysInfo');
+
+        if (startDate && endDate) {
+            const start = new Date(startDate);
+            const end = new Date(endDate);
+
+            if (end < start) {
+                infoDiv.style.display = 'none';
+                document.getElementById('editEndDate').value = '';
+                showToast('End date must be after start date', 'error');
+                return;
+            }
+
+            // Handle half day
+            if ((dayType === 'First Half' || dayType === 'Second Half') && startDate === endDate) {
+                infoDiv.style.display = 'flex';
+                document.getElementById('editLeaveDaysText').textContent = '0.5 day (' + dayType + ')';
+                document.getElementById('editEndDate').setAttribute('min', startDate);
+                return;
+            }
+
+            // Call backend to calculate business days
+            google.script.run
+                .withSuccessHandler(function (businessDays) {
+                    if (businessDays <= 0) {
+                        showToast('Selected dates contain no business days (all Sundays/holidays)', 'error');
+                        infoDiv.style.display = 'none';
+                        return;
+                    }
+
+                    infoDiv.style.display = 'flex';
+                    document.getElementById('editLeaveDaysText').textContent = businessDays + ' business day' + (businessDays > 1 ? 's' : '') + ' (excluding Sundays & holidays)';
+                })
+                .withFailureHandler(function (error) {
+                    showToast('Error calculating business days: ' + error.message, 'error');
+                })
+                .calculateLeaveDays(startDate, endDate);
+
+            // Update end date minimum
+            document.getElementById('editEndDate').setAttribute('min', startDate);
+        } else {
+            infoDiv.style.display = 'none';
+        }
+    }
+
+    // Confirm edit
+    function confirmEdit() {
+        const requestId = document.getElementById('editRequestId').value;
+        const leaveType = document.getElementById('editLeaveType').value;
+        const startDate = document.getElementById('editStartDate').value;
+        const endDate = document.getElementById('editEndDate').value;
+        const reason = document.getElementById('editReason').value;
+        const dayType = document.getElementById('editDayType').value;
+
+        if (!leaveType || !startDate || !endDate || !reason) {
+            showToast('Please fill in all fields', 'error');
+            return;
+        }
+
+        const editBtn = document.getElementById('editSubmitBtn');
+        editBtn.disabled = true;
+        editBtn.textContent = 'Updating...';
+
+        google.script.run
+            .withSuccessHandler(function (response) {
+                editBtn.disabled = false;
+                editBtn.textContent = 'Update Leave';
+                closeEditModal();
+
+                if (response.success) {
+                    showToast(response.message, 'success');
+                    loadLeaveRequests();
+                } else {
+                    showToast(response.message, 'error');
+                }
+            })
+            .withFailureHandler(function (error) {
+                editBtn.disabled = false;
+                editBtn.textContent = 'Update Leave';
+                showToast('Error updating leave: ' + error.message, 'error');
+            })
+            .editLeaveRequest(requestId, leaveType, startDate, endDate, reason, dayType);
+    }
+
+    // ============================================
+    // CANCEL LEAVE MODAL FUNCTIONS
+    // ============================================
+
+    // Open cancel modal
+    function openCancelModal(requestId, status) {
+        document.getElementById('cancelRequestId').value = requestId;
+        document.getElementById('cancelLeaveStatus').value = status;
+
+        const reasonGroup = document.getElementById('cancelReasonGroup');
+        const confirmText = document.getElementById('cancelConfirmText');
+
+        if (status === 'Approved') {
+            // For approved leaves, require reason
+            reasonGroup.style.display = 'block';
+            confirmText.textContent = 'You are cancelling an approved leave. Your leave balance will be restored. Please provide a reason:';
+            document.getElementById('cancellationReason').required = true;
+        } else {
+            // For pending leaves, no reason required
+            reasonGroup.style.display = 'none';
+            confirmText.textContent = 'Are you sure you want to cancel this pending leave request?';
+            document.getElementById('cancellationReason').required = false;
+        }
+
+        document.getElementById('cancelLeaveModal').classList.add('active');
+    }
+
+    // Close cancel modal
+    function closeCancelModal() {
+        document.getElementById('cancelLeaveModal').classList.remove('active');
+        document.getElementById('cancellationReason').value = '';
+    }
+
+    // Confirm cancel
+    function confirmCancel() {
+        const requestId = document.getElementById('cancelRequestId').value;
+        const status = document.getElementById('cancelLeaveStatus').value;
+        const cancellationReason = document.getElementById('cancellationReason').value;
+
+        // Validate reason for approved leaves
+        if (status === 'Approved' && (!cancellationReason || cancellationReason.trim() === '')) {
+            showToast('Please provide a cancellation reason for approved leaves', 'error');
+            return;
+        }
+
+        const cancelBtn = document.getElementById('cancelConfirmBtn');
+        cancelBtn.disabled = true;
+        cancelBtn.textContent = 'Cancelling...';
+
+        google.script.run
+            .withSuccessHandler(function (response) {
+                cancelBtn.disabled = false;
+                cancelBtn.textContent = 'Yes, Cancel Leave';
+                closeCancelModal();
+
+                if (response.success) {
+                    showToast(response.message, 'success');
+                    loadLeaveRequests();
+                    loadEmployeeData(); // Refresh balance if it was restored
+                } else {
+                    showToast(response.message, 'error');
+                }
+            })
+            .withFailureHandler(function (error) {
+                cancelBtn.disabled = false;
+                cancelBtn.textContent = 'Yes, Cancel Leave';
+                showToast('Error cancelling leave: ' + error.message, 'error');
+            })
+            .cancelLeaveRequest(requestId, cancellationReason);
+    }
+
+    // ============================================
+    // ATTENDANCE SYSTEM FUNCTIONS
+    // ============================================
+
+    // Error messages for attendance
+    const ATTENDANCE_ERRORS = {
+        PERMISSION_DENIED: "Location permission denied. Please enable location access in your browser settings.",
+        POSITION_UNAVAILABLE: "Unable to determine your location. Please check your GPS settings.",
+        TIMEOUT: "Location request timed out. Please try again.",
+        GPS_DISABLED: "GPS is disabled. Please enable location services on your device."
+    };
+
+    // Update work mode hint text based on selection
+    function updateWorkModeHint(workMode) {
+        const hintElement = document.getElementById('workModeHint');
+        if (!hintElement) return;
+
+        const hints = {
+            'Office': '📍 GPS radius validation will be enforced',
+            'Work From Home': '🏠 No GPS validation required - Location will be captured for records',
+            'On-Duty': '🚗 No GPS validation required - Location will be captured for records'
+        };
+
+        hintElement.textContent = hints[workMode] || hints['Office'];
+    }
+
+    // Calculate distance using Haversine formula (client-side for immediate feedback)
+    function calculateDistance(lat1, lon1, lat2, lon2) {
+        const R = 6371000; // Earth's radius in meters
+
+        const φ1 = lat1 * Math.PI / 180;
+        const φ2 = lat2 * Math.PI / 180;
+        const Δφ = (lat2 - lat1) * Math.PI / 180;
+        const Δλ = (lon2 - lon1) * Math.PI / 180;
+
+        const a = Math.sin(Δφ / 2) * Math.sin(Δφ / 2) +
+            Math.cos(φ1) * Math.cos(φ2) *
+            Math.sin(Δλ / 2) * Math.sin(Δλ / 2);
+
+        const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+
+        return Math.round(R * c); // Distance in meters
+    }
+
+    // Get current location using browser Geolocation API
+    function getCurrentLocation() {
+        return new Promise((resolve, reject) => {
+            // Check if geolocation is available
+            if (!navigator.geolocation) {
+                reject(new Error('Geolocation is not supported by your browser'));
+                return;
+            }
+
+            // Request location with optimized settings
+            navigator.geolocation.getCurrentPosition(
+                (position) => {
+                    resolve({
+                        latitude: position.coords.latitude,
+                        longitude: position.coords.longitude,
+                        accuracy: position.coords.accuracy
+                    });
+                },
+                (error) => {
+                    let errorMessage = '';
+                    switch (error.code) {
+                        case error.PERMISSION_DENIED:
+                            errorMessage = ATTENDANCE_ERRORS.PERMISSION_DENIED;
+                            break;
+                        case error.POSITION_UNAVAILABLE:
+                            errorMessage = ATTENDANCE_ERRORS.POSITION_UNAVAILABLE;
+                            break;
+                        case error.TIMEOUT:
+                            errorMessage = 'Location request timed out. Please ensure GPS is enabled and try again. If indoors, try moving near a window.';
+                            break;
+                        default:
+                            errorMessage = 'An unknown error occurred while getting your location';
+                    }
+                    reject(new Error(errorMessage));
+                },
+                {
+                    enableHighAccuracy: true,
+                    timeout: 30000,        // Increased to 30 seconds
+                    maximumAge: 10000      // Allow cached position up to 10 seconds old
+                }
+            );
+        });
+    }
+
+    // Main attendance marking flow (Check-In or Check-Out)
+    async function markAttendanceFlow(action) {
+        const checkInBtn = document.getElementById('checkInBtn');
+        const checkOutBtn = document.getElementById('checkOutBtn');
+        const loader = document.getElementById('attendanceLoader');
+        const loaderText = document.getElementById('loaderText');
+        const buttonsContainer = document.querySelector('.attendance-buttons-container');
+        const workModeSelect = document.getElementById('workModeSelect');
+
+        // Get selected work mode
+        const workMode = workModeSelect.value;
+
+        try {
+            // Hide buttons and show loader
+            buttonsContainer.style.display = 'none';
+            loader.style.display = 'flex';
+            loaderText.textContent = 'Requesting location permission...';
+
+            // Get current location
+            loaderText.textContent = 'Getting your location...';
+            const location = await getCurrentLocation();
+
+            // Update loader text based on work mode
+            if (workMode === 'Office') {
+                loaderText.textContent = 'Verifying location and GPS radius...';
+            } else {
+                loaderText.textContent = `Capturing location for ${workMode}...`;
+            }
+
+            // Call backend to mark attendance with action and work mode
+            google.script.run
+                .withSuccessHandler(function (response) {
+                    loader.style.display = 'none';
+                    buttonsContainer.style.display = 'flex';
+
+                    if (response.success) {
+                        showToast(response.message, 'success');
+                        updateAttendanceStatus(response);
+                        loadAttendanceData();
+                    } else {
+                        showToast(response.message, 'error');
+                    }
+                })
+                .withFailureHandler(function (error) {
+                    loader.style.display = 'none';
+                    buttonsContainer.style.display = 'flex';
+                    showToast('Error marking attendance: ' + error.message, 'error');
+                })
+                .markAttendance(location.latitude, location.longitude, action, workMode);
+
+        } catch (error) {
+            // Handle location errors
+            loader.style.display = 'none';
+            buttonsContainer.style.display = 'flex';
+            showToast(error.message, 'error');
+        }
+    }
+
+    // Update attendance status display for check-in/check-out
+    function updateAttendanceStatus(data) {
+        const statusBadge = document.getElementById('attendanceStatusBadge');
+        const statusDisplay = document.getElementById('attendanceStatusDisplay');
+        const attendanceDetails = document.getElementById('attendanceDetails');
+        const checkInBtn = document.getElementById('checkInBtn');
+        const checkOutBtn = document.getElementById('checkOutBtn');
+
+        // Update based on current status
+        if (data.checkedIn || data.action === 'checkin') {
+            // Show check-in success
+            statusBadge.textContent = data.checkedOut ? 'Checked Out' : 'Checked In';
+            statusBadge.className = 'status-badge-large status-checkedin';
+
+            statusDisplay.innerHTML = `
+                <div class="attendance-status-icon success">
+                    <svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path>
+                        <polyline points="22 4 12 14.01 9 11.01"></polyline>
+                    </svg>
+                </div>
+                <p class="attendance-status-text">${data.checkedOut ? 'You have completed your attendance for today' : 'You have checked in successfully'}</p>
+            `;
+
+            // Show details
+            attendanceDetails.style.display = 'block';
+            document.getElementById('checkInTimeDisplay').textContent = data.checkInTime || data.time || '--:--';
+            document.getElementById('checkOutTimeDisplay').textContent = data.checkOutTime || '--:--';
+            document.getElementById('totalHoursDisplay').textContent = data.totalHours ? data.totalHours + ' hrs' : '0.00 hrs';
+
+            // Disable check-in button
+            checkInBtn.disabled = true;
+            checkInBtn.innerHTML = `
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path>
+                    <polyline points="22 4 12 14.01 9 11.01"></polyline>
+                </svg>
+                Checked In
+            `;
+        }
+
+        if (data.checkedOut || data.action === 'checkout') {
+            // Show check-out success
+            statusBadge.textContent = 'Checked Out';
+            statusBadge.className = 'status-badge-large status-checkedout';
+
+            // Update total hours display
+            document.getElementById('checkOutTimeDisplay').textContent = data.checkOutTime || data.time || '--:--';
+            document.getElementById('totalHoursDisplay').textContent = data.totalHours ? data.totalHours + ' hrs' : '0.00 hrs';
+
+            // Disable check-out button
+            checkOutBtn.disabled = true;
+            checkOutBtn.innerHTML = `
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path>
+                    <polyline points="22 4 12 14.01 9 11.01"></polyline>
+                </svg>
+                Checked Out
+            `;
+        }
+    }
+
+    // Load attendance data (stats and history)
+    function loadAttendanceData() {
+        // Populate year filter dropdown
+        populateYearFilter();
+
+        // Check if today's attendance is marked
+        google.script.run
+            .withSuccessHandler(function (data) {
+                if (data && data.marked) {
+                    updateAttendanceStatus(data);
+
+                    // Update button states based on status
+                    const checkInBtn = document.getElementById('checkInBtn');
+                    const checkOutBtn = document.getElementById('checkOutBtn');
+                    const attendanceDetails = document.getElementById('attendanceDetails');
+
+                    if (data.checkedIn) {
+                        attendanceDetails.style.display = 'block';
+                        document.getElementById('checkInTimeDisplay').textContent = data.checkInTime;
+                        document.getElementById('checkOutTimeDisplay').textContent = data.checkOutTime || '--:--';
+                        document.getElementById('totalHoursDisplay').textContent = data.totalHours ? data.totalHours + ' hrs' : '0.00 hrs';
+
+                        checkInBtn.disabled = true;
+                        checkInBtn.innerHTML = `
+                            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path>
+                                <polyline points="22 4 12 14.01 9 11.01"></polyline>
+                            </svg>
+                            Checked In
+                        `;
+                    }
+
+                    if (data.checkedOut) {
+                        checkOutBtn.disabled = true;
+                        checkOutBtn.innerHTML = `
+                            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path>
+                                <polyline points="22 4 12 14.01 9 11.01"></polyline>
+                            </svg>
+                            Checked Out
+                        `;
+                    }
+                }
+            })
+            .withFailureHandler(function (error) {
+                console.error('Error checking attendance status:', error);
+            })
+            .isTodayAttendanceMarked();
+
+        // Load attendance statistics
+        google.script.run
+            .withSuccessHandler(function (stats) {
+                document.getElementById('presentDays').textContent = stats.presentDays;
+                document.getElementById('attendancePercentage').textContent = stats.percentage + '%';
+            })
+            .withFailureHandler(function (error) {
+                console.error('Error loading attendance stats:', error);
+            })
+            .getAttendanceStats(30);
+
+        // Load attendance history (last 30 days by default)
+        loadAttendanceHistory();
+    }
+
+    // Populate year filter with current year and previous 2 years
+    function populateYearFilter() {
+        const yearFilter = document.getElementById('attendanceYearFilter');
+        const currentYear = new Date().getFullYear();
+
+        // Clear existing options except the first one
+        yearFilter.innerHTML = '<option value="">Select Year</option>';
+
+        // Add current year and previous 2 years
+        for (let i = 0; i <= 2; i++) {
+            const year = currentYear - i;
+            const option = document.createElement('option');
+            option.value = year;
+            option.textContent = year;
+            yearFilter.appendChild(option);
+        }
+    }
+
+    // Apply attendance filter
+    function applyAttendanceFilter() {
+        const monthFilter = document.getElementById('attendanceMonthFilter');
+        const yearFilter = document.getElementById('attendanceYearFilter');
+
+        const month = monthFilter.value;
+        const year = yearFilter.value;
+
+        console.log('applyAttendanceFilter: month="' + month + '", year="' + year + '"');
+
+        if (month === "" || year === "") {
+            showToast('Please select both month and year', 'error');
+            return;
+        }
+
+        const monthInt = parseInt(month);
+        const yearInt = parseInt(year);
+        console.log('Parsed values: monthInt=' + monthInt + ', yearInt=' + yearInt);
+
+        // Show loading animation
+        const container = document.getElementById('attendanceHistoryContainer');
+        container.innerHTML = `
+            <div class="loading-animation" style="display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 60px 20px; animation: fadeIn 0.3s ease-in;">
+                <div class="spinner" style="width: 50px; height: 50px; border: 4px solid #f3f3f3; border-top: 4px solid #667eea; border-radius: 50%; animation: spin 1s linear infinite;"></div>
+                <p style="margin-top: 20px; color: var(--text-secondary); font-size: 14px;">Loading attendance records...</p>
+            </div>
+        `;
+
+        // Load filtered attendance
+        loadAttendanceHistory(monthInt, yearInt);
+
+        // Update stats for selected period
+        google.script.run
+            .withSuccessHandler(function (stats) {
+                document.getElementById('presentDays').textContent = stats.presentDays;
+                document.getElementById('attendancePercentage').textContent = stats.percentage + '%';
+
+                // Show success toast
+                showToast('Filter applied successfully!', 'success');
+            })
+            .withFailureHandler(function (error) {
+                console.error('Error loading filtered stats:', error);
+                showToast('Error loading statistics', 'error');
+            })
+            .getAttendanceStats(null, monthInt, yearInt);
+    }
+
+
+    // Reset attendance filter
+    function resetAttendanceFilter() {
+        document.getElementById('attendanceMonthFilter').value = '';
+        document.getElementById('attendanceYearFilter').value = '';
+
+        // Reload default view (last 30 days)
+        loadAttendanceHistory();
+
+        // Reload default stats
+        google.script.run
+            .withSuccessHandler(function (stats) {
+                document.getElementById('presentDays').textContent = stats.presentDays;
+                document.getElementById('attendancePercentage').textContent = stats.percentage + '%';
+            })
+            .withFailureHandler(function (error) {
+                console.error('Error loading stats:', error);
+            })
+            .getAttendanceStats(30);
+    }
+
+    // Load attendance history with optional month/year filter
+    function loadAttendanceHistory(month, year) {
+        const container = document.getElementById('attendanceHistoryContainer');
+
+        console.log('loadAttendanceHistory called: month=' + month + ' (type: ' + typeof month + '), year=' + year + ' (type: ' + typeof year + ')');
+
+        const daysParam = month !== undefined ? null : 30;
+        console.log('Calling getEmployeeAttendance with: days=' + daysParam + ', month=' + month + ', year=' + year);
+
+        google.script.run
+            .withSuccessHandler(function (records) {
+                console.log('getEmployeeAttendance returned ' + (records ? records.length : 0) + ' records');
+
+                // Add null check
+                if (!records || records.length === 0) {
+                    container.innerHTML = `
+                        <div class="no-requests">
+                            <svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                                <circle cx="12" cy="12" r="10"></circle>
+                                <polyline points="12 6 12 12 16 14"></polyline>
+                            </svg>
+                            <p>No attendance records found</p>
+                            <span>Your attendance history will appear here</span>
+                        </div>
+                    `;
+                    return;
+                }
+
+                // Create modern card-based layout for attendance history
+                container.innerHTML = `
+                    <div class="attendance-cards-grid" style="animation: fadeIn 0.5s ease-in;">
+                        ${records.map(record => `
+                            <div class="attendance-history-card">
+                                <div class="attendance-card-header">
+                                    <div class="attendance-card-date">
+                                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                            <rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect>
+                                            <line x1="16" y1="2" x2="16" y2="6"></line>
+                                            <line x1="8" y1="2" x2="8" y2="6"></line>
+                                            <line x1="3" y1="10" x2="21" y2="10"></line>
+                                        </svg>
+                                        <span>${record.date}</span>
+                                    </div>
+                                    <div class="status-badges">
+                                        ${record.lateStatus === 'Late' ? '<span class="status-badge status-late">Late Punch</span>' : ''}
+                                        <span class="status-badge ${getStatusClass(record.status)}">
+                                            ${record.status}
+                                        </span>
+                                    </div>
+                                </div>
+                                <div class="attendance-card-body">
+                                    <div class="attendance-card-time">
+                                        <div class="time-item">
+                                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                                <path d="M12 2v20M2 12h20"></path>
+                                            </svg>
+                                            <div class="time-details">
+                                                <span class="time-label">Check-In</span>
+                                                <span class="time-value">${record.checkInTime || '--:--'}</span>
+                                            </div>
+                                        </div>
+                                        <div class="time-divider"></div>
+                                        <div class="time-item">
+                                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                                <path d="M18 6L6 18M6 6l12 12"></path>
+                                            </svg>
+                                            <div class="time-details">
+                                                <span class="time-label">Check-Out</span>
+                                                <span class="time-value">${record.checkOutTime || '--:--'}</span>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    <div class="attendance-card-footer">
+                                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                            <circle cx="12" cy="12" r="10"></circle>
+                                            <polyline points="12 6 12 12 16 14"></polyline>
+                                        </svg>
+                                        <span class="total-hours-text">Total Hours: <strong>${record.totalHours || '0.00'} hrs</strong></span>
+                                    </div>
+                                </div>
+                            </div>
+                        `).join('')}
+                    </div>
+                `;
+
+            })
+            .withFailureHandler(function (error) {
+                console.error('Error loading attendance history:', error);
+                showToast('Error loading attendance history', 'error');
+            })
+            .getEmployeeAttendance(daysParam, month, year);
+    }
+
+    // Helper function to get status class
+    function getStatusClass(status) {
+        if (status === 'Checked In') return 'status-checkedin';
+        if (status === 'Checked Out') return 'status-checkedout';
+        return 'status-present';
+    }
+
+    // ============================================
+    // EMPLOYEE PROFILE MODAL FUNCTIONS
+    // ============================================
+
+    // Show employee profile information modal
+    function showEmployeeInfoModal() {
+        const modal = document.getElementById('employeeInfoModal');
+        const loader = document.getElementById('employeeProfileLoader');
+        const content = document.getElementById('employeeProfileContent');
+
+        // Show modal and loader
+        modal.classList.add('active');
+        loader.style.display = 'flex';
+        content.style.display = 'none';
+
+        // Fetch employee details from backend
+        google.script.run
+            .withSuccessHandler(function (employeeDetails) {
+                loader.style.display = 'none';
+
+                if (!employeeDetails) {
+                    content.innerHTML = `
+                        <div class="profile-error">
+                            <p>Unable to load employee information</p>
+                            <span>Please contact HR if this issue persists</span>
+                        </div>
+                    `;
+                    content.style.display = 'block';
+                    return;
+                }
+
+                // Populate profile fields
+                document.getElementById('profileName').textContent = employeeDetails.name || 'Not provided';
+                document.getElementById('profileFatherName').textContent = employeeDetails.fatherName || 'Not provided';
+                document.getElementById('profileDOB').textContent = employeeDetails.dateOfBirth || 'Not provided';
+                document.getElementById('profileDOJ').textContent = employeeDetails.dateOfJoining || 'Not provided';
+
+                document.getElementById('profileEmail').textContent = employeeDetails.email || 'Not provided';
+                document.getElementById('profilePhone').textContent = employeeDetails.phoneNumber || 'Not provided';
+                document.getElementById('profileAddress').textContent = employeeDetails.address || 'Not provided';
+
+                document.getElementById('profileEmployeeId').textContent = employeeDetails.employeeId || 'Not provided';
+                document.getElementById('profileDesignation').textContent = employeeDetails.designation || 'Not provided';
+                document.getElementById('profileDepartment').textContent = employeeDetails.department || 'Not provided';
+                document.getElementById('profileManager').textContent = employeeDetails.managerEmail || 'Not provided';
+
+                document.getElementById('profileCTC').textContent = employeeDetails.ctc || 'Not provided';
+
+                document.getElementById('profileBankName').textContent = employeeDetails.bankName || 'Not provided';
+                document.getElementById('profileAccountNumber').textContent = employeeDetails.accountNumber || 'Not provided';
+                document.getElementById('profileIFSC').textContent = employeeDetails.ifscCode || 'Not provided';
+                document.getElementById('profileBranchName').textContent = employeeDetails.branchName || 'Not provided';
+                document.getElementById('profileAccountType').textContent = employeeDetails.accountType || 'Not provided';
+
+                document.getElementById('profilePAN').textContent = employeeDetails.panNumber || 'Not provided';
+                document.getElementById('profileAadhaar').textContent = employeeDetails.aadhaarNumber || 'Not provided';
+                document.getElementById('profileUAN').textContent = employeeDetails.uanNumber || 'Not provided';
+                document.getElementById('profileESI').textContent = employeeDetails.esiNumber || 'Not provided';
+
+                content.style.display = 'block';
+            })
+            .withFailureHandler(function (error) {
+                loader.style.display = 'none';
+                content.innerHTML = `
+                    <div class="profile-error">
+                        <p>Error loading employee information</p>
+                        <span>${error.message || 'Please try again later'}</span>
+                    </div>
+                `;
+                content.style.display = 'block';
+            })
+            .getEmployeeDetails();
+    }
+
+    // Close employee profile modal
+    function closeEmployeeInfoModal() {
+        const modal = document.getElementById('employeeInfoModal');
+        modal.classList.remove('active');
+    }
+
+    // ============================================
+    // PROFILE MENU FUNCTIONS
+    // ============================================
+
+    // Toggle profile dropdown menu
+    function toggleProfileMenu() {
+        const dropdown = document.getElementById('profileDropdown');
+        dropdown.classList.toggle('active');
+    }
+
+    // Close profile dropdown menu
+    function closeProfileMenu() {
+        const dropdown = document.getElementById('profileDropdown');
+        dropdown.classList.remove('active');
+    }
+
+    // Close profile menu when clicking outside
+    document.addEventListener('click', function (event) {
+        const profileContainer = document.querySelector('.profile-menu-container');
+        const profileDropdown = document.getElementById('profileDropdown');
+
+        if (profileContainer && !profileContainer.contains(event.target)) {
+            profileDropdown.classList.remove('active');
+        }
+    });
+
+    // ============================================
+    // SALARY DETAILS FUNCTIONS
+    // ============================================
+
+    let currentSalaryData = null;
+
+    // Show salary details modal
+    function showSalaryDetailsModal() {
+        const modal = document.getElementById('salaryDetailsModal');
+        const loader = document.getElementById('salaryLoader');
+        const noData = document.getElementById('salaryNoData');
+        const content = document.getElementById('salaryContent');
+        const monthSelect = document.getElementById('salaryMonthSelect');
+
+        // Show modal
+        modal.classList.add('active');
+        loader.style.display = 'flex';
+        noData.style.display = 'none';
+        content.style.display = 'none';
+
+        // Load available months
+        google.script.run
+            .withSuccessHandler(function (availableMonths) {
+                loader.style.display = 'none';
+
+                if (!availableMonths || availableMonths.length === 0) {
+                    noData.style.display = 'flex';
+                    document.getElementById('salaryNoDataMessage').textContent = 'No salary records available. Please contact HR.';
+                    return;
+                }
+
+                // Populate month selector
+                monthSelect.innerHTML = '<option value="">Select a month...</option>';
+                availableMonths.forEach(function (monthData) {
+                    // Skip if no month name or year
+                    if (!monthData.monthName || !monthData.year) return;
+
+                    const option = document.createElement('option');
+                    option.value = JSON.stringify({ month: monthData.month, year: monthData.year });
+                    option.textContent = monthData.monthName + ' ' + monthData.year;
+                    monthSelect.appendChild(option);
+                });
+
+                noData.style.display = 'flex';
+                document.getElementById('salaryNoDataMessage').textContent = 'Please select a month to view salary details';
+            })
+            .withFailureHandler(function (error) {
+                loader.style.display = 'none';
+                noData.style.display = 'flex';
+                document.getElementById('salaryNoDataMessage').textContent = 'Error loading salary data: ' + error.message;
+            })
+            .getAvailableMonthsForSalary();
+    }
+
+    // Close salary details modal
+    function closeSalaryDetailsModal() {
+        const modal = document.getElementById('salaryDetailsModal');
+        modal.classList.remove('active');
+        currentSalaryData = null;
+    }
+
+    // Load selected salary
+    function loadSelectedSalary() {
+        const monthSelect = document.getElementById('salaryMonthSelect');
+        const selectedValue = monthSelect.value;
+
+        if (!selectedValue) {
+            document.getElementById('salaryNoData').style.display = 'flex';
+            document.getElementById('salaryContent').style.display = 'none';
+            return;
+        }
+
+        const { month, year } = JSON.parse(selectedValue);
+
+        const loader = document.getElementById('salaryLoader');
+        const noData = document.getElementById('salaryNoData');
+        const content = document.getElementById('salaryContent');
+
+        loader.style.display = 'flex';
+        noData.style.display = 'none';
+        content.style.display = 'none';
+
+        // Load salary details
+        google.script.run
+            .withSuccessHandler(function (response) {
+                loader.style.display = 'none';
+
+                if (!response.success) {
+                    noData.style.display = 'flex';
+                    document.getElementById('salaryNoDataMessage').textContent = response.message || 'No salary data found';
+                    return;
+                }
+
+                // Store current salary data for PDF generation
+                currentSalaryData = response;
+
+                // Populate salary details
+                populateSalaryDetails(response);
+                content.style.display = 'block';
+            })
+            .withFailureHandler(function (error) {
+                loader.style.display = 'none';
+                noData.style.display = 'flex';
+                document.getElementById('salaryNoDataMessage').textContent = 'Error loading salary details: ' + error.message;
+            })
+            .getSalaryDetails(month, year);
+    }
+
+    // Populate salary details in the UI
+    function populateSalaryDetails(data) {
+        const emp = data.employeeInfo;
+        const salary = data.salaryBreakdown;
+
+        // Employee info
+        document.getElementById('salaryEmployeeName').textContent = emp.name;
+        document.getElementById('salaryEmployeeId').textContent = emp.employeeId;
+        document.getElementById('salaryDOJ').textContent = emp.dateOfJoining || '-';
+        document.getElementById('salaryPaidDays').textContent = data.salaryBreakdown.paidDays || '-';
+        document.getElementById('salaryDesignation').textContent = emp.designation;
+        document.getElementById('salaryDepartment').textContent = emp.department;
+        document.getElementById('salaryPeriod').textContent = data.monthName + ' ' + data.year;
+
+        // Earnings
+        document.getElementById('salaryBasic').textContent = formatCurrency(salary.earnings.basicSalary);
+        document.getElementById('salaryHRA').textContent = formatCurrency(salary.earnings.hra);
+        document.getElementById('salaryConveyance').textContent = formatCurrency(salary.earnings.conveyanceAllowance);
+        document.getElementById('salaryMedical').textContent = formatCurrency(salary.earnings.medicalAllowance);
+        document.getElementById('salarySpecial').textContent = formatCurrency(salary.earnings.specialAllowance);
+        document.getElementById('salaryOtherEarnings').textContent = formatCurrency(salary.earnings.otherEarnings);
+        document.getElementById('salaryGross').textContent = formatCurrency(salary.earnings.grossSalary);
+
+        // Deductions
+        document.getElementById('salaryPF').textContent = formatCurrency(salary.deductions.pfDeduction);
+        document.getElementById('salaryESI').textContent = formatCurrency(salary.deductions.esiDeduction);
+        document.getElementById('salaryPT').textContent = formatCurrency(salary.deductions.professionalTax);
+        document.getElementById('salaryTDS').textContent = formatCurrency(salary.deductions.tds);
+        document.getElementById('salaryOtherDeductions').textContent = formatCurrency(salary.deductions.otherDeductions);
+        document.getElementById('salaryTotalDeductions').textContent = formatCurrency(salary.deductions.totalDeductions);
+
+        // Net Salary
+        document.getElementById('salaryNet').textContent = formatCurrency(salary.netSalary);
+    }
+
+    // Format currency
+    function formatCurrency(amount) {
+        return '₹' + parseFloat(amount || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    }
+
+    // Download salary slip as PDF
+    function downloadSalaryPDF() {
+        if (!currentSalaryData) {
+            showToast('No salary data available to download', 'error');
+            return;
+        }
+
+        // Load jsPDF library dynamically
+        if (typeof jspdf === 'undefined') {
+            const script = document.createElement('script');
+            script.src = 'https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js';
+            script.onload = function () {
+                generatePDF();
+            };
+            script.onerror = function () {
+                showToast('Failed to load PDF library', 'error');
+            };
+            document.head.appendChild(script);
+        } else {
+            generatePDF();
+        }
+    }
+
+    // Generate PDF with Professional Design
+    function generatePDF() {
+        const { jsPDF } = window.jspdf;
+        const doc = new jsPDF();
+
+        const data = currentSalaryData;
+        const emp = data.employeeInfo;
+        const salary = data.salaryBreakdown;
+
+        // Constants for layout
+        const pageWidth = 210;
+        const margin = 15;
+        const contentWidth = pageWidth - (margin * 2);
+        const centerX = pageWidth / 2;
+
+        // Helper for safe currency formatting (Rs. instead of symbol for PDF compatibility)
+        const formatMoney = (amount) => {
+            return 'Rs. ' + parseFloat(amount || 0).toLocaleString('en-IN', {
+                minimumFractionDigits: 2,
+                maximumFractionDigits: 2
+            });
+        };
+
+        // Colors
+        const primaryColor = [26, 26, 46]; // Dark Blue #1a1a2e
+        const secondaryColor = [102, 126, 234]; // Accent Blue #667eea
+        const grayColor = [100, 100, 100];
+        const lightGray = [245, 245, 245];
+
+        // --- HEADER SECTION ---
+
+        // Company Name
+        doc.setFontSize(24);
+        doc.setTextColor(...primaryColor);
+        doc.setFont('helvetica', 'bold');
+        doc.text('KarmSarthi', centerX, 25, { align: 'center' });
+
+        // Tagline
+        doc.setFontSize(10);
+        doc.setTextColor(...secondaryColor);
+        doc.setFont('helvetica', 'italic');
+        doc.text('Har din, har chhutti ka bharosa', centerX, 32, { align: 'center' });
+
+        // Divider
+        doc.setDrawColor(200, 200, 200);
+        doc.line(margin, 38, pageWidth - margin, 38);
+
+        // --- TITLE SECTION ---
+        doc.setFontSize(16);
+        doc.setTextColor(...primaryColor);
+        doc.setFont('helvetica', 'bold');
+        doc.text('PAYSLIP', centerX, 50, { align: 'center' });
+
+        doc.setFontSize(11);
+        doc.setTextColor(...grayColor);
+        doc.setFont('helvetica', 'normal');
+        doc.text(`For the month of ${data.monthName} ${data.year}`, centerX, 57, { align: 'center' });
+
+        // --- EMPLOYEE DETAILS BOX ---
+        const empBoxTop = 65;
+        const empBoxHeight = 35;
+
+        // Background for Emp Box
+        doc.setFillColor(...lightGray);
+        doc.rect(margin, empBoxTop, contentWidth, empBoxHeight, 'F');
+        doc.setDrawColor(220, 220, 220);
+        doc.rect(margin, empBoxTop, contentWidth, empBoxHeight, 'S');
+
+        // Employee Details Text
+        doc.setFontSize(10);
+        doc.setTextColor(0, 0, 0);
+
+        // Left Column
+        doc.setFont('helvetica', 'bold');
+        doc.text('Employee Name:', margin + 5, empBoxTop + 10);
+        doc.text('Employee ID:', margin + 5, empBoxTop + 20);
+        doc.text('Department:', margin + 5, empBoxTop + 30);
+
+        doc.setFont('helvetica', 'normal');
+        doc.text(emp.name, margin + 45, empBoxTop + 10);
+        doc.text(emp.employeeId, margin + 45, empBoxTop + 20);
+        doc.text(emp.department, margin + 45, empBoxTop + 30);
+
+        // Right Column
+        doc.setFont('helvetica', 'bold');
+        doc.text('Designation:', centerX + 10, empBoxTop + 10);
+        doc.text('Date of Joining:', centerX + 10, empBoxTop + 20);
+        doc.text('Paid Days:', centerX + 10, empBoxTop + 30);
+
+        doc.setFont('helvetica', 'normal');
+        doc.text(emp.designation, centerX + 45, empBoxTop + 10);
+        doc.text(emp.dateOfJoining || 'N/A', centerX + 45, empBoxTop + 20);
+        doc.text(String(salary.paidDays || '-'), centerX + 45, empBoxTop + 30);
+
+        // --- SALARY TABLE ---
+        const tableTop = 110;
+        const colWidth = contentWidth / 2;
+        const headerHeight = 10;
+        const rowHeight = 8;
+
+        // Table Headers Background
+        doc.setFillColor(230, 230, 230);
+        doc.rect(margin, tableTop, contentWidth, headerHeight, 'F');
+
+        // Header Text
+        doc.setFontSize(11);
+        doc.setFont('helvetica', 'bold');
+        doc.setTextColor(0, 0, 0);
+        doc.text('EARNINGS', margin + 5, tableTop + 7);
+        doc.text('AMOUNT', centerX - 5, tableTop + 7, { align: 'right' });
+        doc.text('DEDUCTIONS', centerX + 5, tableTop + 7);
+        doc.text('AMOUNT', pageWidth - margin - 5, tableTop + 7, { align: 'right' });
+
+        // Table Borders (Outer)
+        doc.setDrawColor(0, 0, 0);
+        doc.rect(margin, tableTop, contentWidth, 100, 'S'); // Placeholder height, will calculate
+        // Vertical Divider
+        doc.line(centerX, tableTop, centerX, tableTop + 100); // Placeholder height
+        // Header Divider
+        doc.line(margin, tableTop + headerHeight, pageWidth - margin, tableTop + headerHeight);
+
+        // Rows
+        doc.setFontSize(10);
+        doc.setFont('helvetica', 'normal');
+
+        const earnings = [
+            ['Basic Salary', salary.earnings.basicSalary],
+            ['HRA', salary.earnings.hra],
+            ['Conveyance', salary.earnings.conveyanceAllowance],
+            ['Medical Allow.', salary.earnings.medicalAllowance],
+            ['Special Allow.', salary.earnings.specialAllowance],
+            ['Other Earnings', salary.earnings.otherEarnings]
+        ];
+
+        const deductions = [
+            ['Provident Fund', salary.deductions.pfDeduction],
+            ['ESI', salary.deductions.esiDeduction],
+            ['Professional Tax', salary.deductions.professionalTax],
+            ['TDS', salary.deductions.tds],
+            ['Other Deductions', salary.deductions.otherDeductions]
+        ];
+
+        const maxRows = Math.max(earnings.length, deductions.length);
+        let currentY = tableTop + headerHeight + 6;
+
+        for (let i = 0; i < maxRows; i++) {
+            // Earning Row
+            if (i < earnings.length) {
+                doc.text(earnings[i][0], margin + 5, currentY);
+                doc.text(formatMoney(earnings[i][1]), centerX - 5, currentY, { align: 'right' });
+            }
+
+            // Deduction Row
+            if (i < deductions.length) {
+                doc.text(deductions[i][0], centerX + 5, currentY);
+                doc.text(formatMoney(deductions[i][1]), pageWidth - margin - 5, currentY, { align: 'right' });
+            }
+
+            currentY += rowHeight;
+        }
+
+        // Check actual height needed
+        const tableHeight = (maxRows * rowHeight) + headerHeight + 15; // +15 for totals row
+
+        // Redraw outer rect and vertical line with correct height
+        doc.setFillColor(255, 255, 255); // Clear potential overlap
+        // Actually faster to just draw specific lines, but let's correct the hardcoded 100
+        // We'll just draw the bottom line of the data section
+        const dataEndTop = tableTop + headerHeight + (maxRows * rowHeight) + 4;
+        doc.line(margin, dataEndTop, pageWidth - margin, dataEndTop);
+        // Fix vertical line length
+        doc.setDrawColor(255, 255, 255); // White to erase
+        doc.line(centerX, tableTop + 100, centerX, dataEndTop); // Erase excess? No, simple to just redraw everything properly or not use 'rect' initially.
+        // Let's re-draw the main structure correctly now we know height
+
+        // Clear area
+        doc.setFillColor(255, 255, 255);
+        doc.rect(margin, tableTop, contentWidth, 200, 'F'); // Clear previous
+
+        // Re-draw Header Background
+        doc.setFillColor(240, 240, 245);
+        doc.rect(margin, tableTop, contentWidth, headerHeight, 'F');
+
+        // Header Text
+        doc.setFontSize(10);
+        doc.setFont('helvetica', 'bold');
+        doc.setTextColor(0, 0, 0);
+        doc.text('EARNINGS', margin + 5, tableTop + 7);
+        doc.text('AMOUNT', centerX - 5, tableTop + 7, { align: 'right' });
+        doc.text('DEDUCTIONS', centerX + 5, tableTop + 7);
+        doc.text('AMOUNT', pageWidth - margin - 5, tableTop + 7, { align: 'right' });
+
+        // Re-draw rows
+        doc.setFontSize(9);
+        doc.setFont('helvetica', 'normal');
+        currentY = tableTop + headerHeight + 6;
+
+        for (let i = 0; i < maxRows; i++) {
+            // Gray alternate rows? Optional. Let's keep it clean white.
+            if (i < earnings.length) {
+                doc.text(earnings[i][0], margin + 5, currentY);
+                doc.text(formatMoney(earnings[i][1]), centerX - 5, currentY, { align: 'right' });
+            }
+            if (i < deductions.length) {
+                doc.text(deductions[i][0], centerX + 5, currentY);
+                doc.text(formatMoney(deductions[i][1]), pageWidth - margin - 5, currentY, { align: 'right' });
+            }
+            currentY += rowHeight;
+        }
+
+        // Totals Row
+        const totalRowTop = dataEndTop;
+        const totalRowHeight = 12;
+
+        doc.setFillColor(240, 240, 245);
+        doc.rect(margin, totalRowTop, contentWidth, totalRowHeight, 'F');
+
+        doc.setFontSize(10);
+        doc.setFont('helvetica', 'bold');
+        currentY = totalRowTop + 8;
+
+        doc.text('Gross Earnings', margin + 5, currentY);
+        doc.text(formatMoney(salary.earnings.grossSalary), centerX - 5, currentY, { align: 'right' });
+
+        doc.text('Total Deductions', centerX + 5, currentY);
+        doc.text(formatMoney(salary.deductions.totalDeductions), pageWidth - margin - 5, currentY, { align: 'right' });
+
+        // Borders
+        const finalTableBottom = totalRowTop + totalRowHeight;
+        doc.setDrawColor(200, 200, 200);
+        doc.rect(margin, tableTop, contentWidth, finalTableBottom - tableTop, 'S'); // Outer border
+        doc.line(centerX, tableTop, centerX, finalTableBottom); // Vertical center
+        doc.line(margin, tableTop + headerHeight, pageWidth - margin, tableTop + headerHeight); // Header separator
+        doc.line(margin, totalRowTop, pageWidth - margin, totalRowTop); // Total separator
+
+        // --- NET SALARY ---
+        const netBoxTop = finalTableBottom + 10;
+
+        doc.setDrawColor(102, 126, 234); // Accent color
+        doc.setLineWidth(0.5);
+        doc.rect(margin, netBoxTop, contentWidth, 15, 'S');
+
+        doc.setFontSize(14);
+        doc.setFont('helvetica', 'bold');
+        doc.setTextColor(...primaryColor);
+        doc.text('NET SALARY PAYABLE:', margin + 5, netBoxTop + 10);
+
+        doc.setFontSize(16);
+        doc.text(formatMoney(salary.netSalary), pageWidth - margin - 5, netBoxTop + 10, { align: 'right' });
+
+        // Amount in words (Placeholder logic or simple text)
+        doc.setFontSize(9);
+        doc.setFont('helvetica', 'italic');
+        doc.setTextColor(...grayColor);
+        // doc.text('(Amount in words here)', margin + 5, netBoxTop + 22);
+
+        // --- FOOTER ---
+        const footerY = 280;
+        doc.setFontSize(8);
+        doc.setTextColor(150, 150, 150);
+        doc.setFont('helvetica', 'normal');
+        doc.text('This payslip is computer generated and does not require a signature.', centerX, footerY, { align: 'center' });
+        doc.text('Powered by KarmSarthi', centerX, footerY + 5, { align: 'center' });
+
+        // Save
+        const fileName = `Salary_Slip_${data.monthName}_${data.year}.pdf`;
+        doc.save(fileName);
+        showToast('Salary slip downloaded successfully!', 'success');
+    }
+
+    // ============================================================================
+    // REGULARIZATION REQUEST FUNCTIONS
+    // ============================================================================
+
+    /**
+     * Open regularization request modal
+     */
+    function openRegularizationModal() {
+        const modal = document.getElementById('regularizationModal');
+        const dateInput = document.getElementById('regAttendanceDate');
+
+        // Set max date to yesterday
+        const yesterday = new Date();
+        yesterday.setDate(yesterday.getDate() - 1);
+        const maxDate = yesterday.toISOString().split('T')[0];
+        dateInput.setAttribute('max', maxDate);
+
+        // Set min date to 7 days ago
+        const minDate = new Date();
+        minDate.setDate(minDate.getDate() - 7);
+        dateInput.setAttribute('min', minDate.toISOString().split('T')[0]);
+
+        // Reset form
+        document.getElementById('regularizationForm').reset();
+
+        modal.classList.add('active');
+    }
+
+    /**
+     * Close regularization request modal
+     */
+    function closeRegularizationModal() {
+        document.getElementById('regularizationModal').classList.remove('active');
+    }
+
+    /**
+     * Submit regularization request
+     */
+    function submitRegularization() {
+        const date = document.getElementById('regAttendanceDate').value;
+        const reason = document.getElementById('regReason').value.trim();
+        const submitBtn = document.getElementById('submitRegularizationBtn');
+
+        if (!date || !reason) {
+            showToast('Please fill in all required fields', 'error');
+            return;
+        }
+
+        if (reason.length < 10) {
+            showToast('Please provide a detailed reason (minimum 10 characters)', 'error');
+            return;
+        }
+
+        // Disable button and show loading
+        submitBtn.disabled = true;
+        submitBtn.innerHTML = '<div class="spinner"></div> Submitting...';
+
+        google.script.run
+            .withSuccessHandler(function (result) {
+                submitBtn.disabled = false;
+                submitBtn.innerHTML = 'Submit Request';
+
+                if (result.success) {
+                    showToast(result.message, 'success');
+                    closeRegularizationModal();
+                    loadRegularizationHistory();
+                } else {
+                    showToast(result.message, 'error');
+                }
+            })
+            .withFailureHandler(function (error) {
+                submitBtn.disabled = false;
+                submitBtn.innerHTML = 'Submit Request';
+                console.error('Error submitting regularization request:', error);
+                showToast('Failed to submit request. Please try again.', 'error');
+            })
+            .submitRegularizationRequest(date, reason);
+    }
+
+    /**
+     * Load regularization history for employee
+     */
+    function loadRegularizationHistory() {
+        google.script.run
+            .withSuccessHandler(displayRegularizationHistory)
+            .withFailureHandler(function (error) {
+                console.error('Error loading regularization history:', error);
+                showToast('Failed to load regularization history', 'error');
+            })
+            .getEmployeeRegularizationRequests();
+    }
+
+    /**
+     * Display regularization history
+     */
+    function displayRegularizationHistory(requests) {
+        const container = document.getElementById('regularizationHistoryContainer');
+
+        if (!requests || requests.length === 0) {
+            container.innerHTML = `
+                <div class="no-requests">
+                    <svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                        <path d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+                    </svg>
+                    <p>No regularization requests</p>
+                    <span>Your regularization requests will appear here</span>
+                </div>
+            `;
+            return;
+        }
+
+        container.innerHTML = requests.map(request => {
+            const statusClass = request.status.toLowerCase();
+            const statusIcon = request.status === 'Approved' ? '✓' : request.status === 'Rejected' ? '✗' : '⏱';
+
+            return `
+                <div class="regularization-card">
+                    <div class="regularization-card-header">
+                        <div class="regularization-date">
+                            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect>
+                                <line x1="16" y1="2" x2="16" y2="6"></line>
+                                <line x1="8" y1="2" x2="8" y2="6"></line>
+                                <line x1="3" y1="10" x2="21" y2="10"></line>
+                            </svg>
+                            ${request.attendanceDate}
+                        </div>
+                        <span class="status-badge status-${statusClass}">${statusIcon} ${request.status}</span>
+                    </div>
+                    <div class="regularization-card-body">
+                        <div class="regularization-field">
+                            <label>Reason:</label>
+                            <p>${request.reason}</p>
+                        </div>
+                        <div class="regularization-field">
+                            <label>Requested on:</label>
+                            <p>${request.requestDate}</p>
+                        </div>
+                        ${request.actionDate ? `
+                        <div class="regularization-field">
+                            <label>${request.status === 'Approved' ? 'Approved' : 'Rejected'} on:</label>
+                            <p>${request.actionDate}</p>
+                        </div>
+                        ` : ''}
+                        ${request.managerComments ? `
+                        <div class="regularization-field">
+                            <label>Manager Comments:</label>
+                            <p>${request.managerComments}</p>
+                        </div>
+                        ` : ''}
+                    </div>
+                </div>
+            `;
+        }).join('');
+    }
+
+    /**
+     * Load manager regularization requests
+     */
+    function loadManagerRegularizationRequests() {
+        google.script.run
+            .withSuccessHandler(displayManagerRegularizationRequests)
+            .withFailureHandler(function (error) {
+                console.error('Error loading manager regularization requests:', error);
+                showToast('Failed to load regularization requests', 'error');
+            })
+            .getManagerRegularizationRequests();
+    }
+
+    /**
+     * Display manager regularization requests
+     */
+    function displayManagerRegularizationRequests(requests) {
+        const container = document.getElementById('pendingRegularizationContainer');
+        const countBadge = document.getElementById('pendingRegCount');
+
+        if (!container) {
+            return;
+        }
+
+        if (!requests || requests.length === 0) {
+            container.innerHTML = `
+                <div class="no-requests">
+                    <svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                        <path d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+                    </svg>
+                    <p>No pending regularization requests</p>
+                    <span>Regularization requests will appear here</span>
+                </div>
+            `;
+            if (countBadge) countBadge.textContent = '0 pending';
+            return;
+        }
+
+        if (countBadge) countBadge.textContent = requests.length + ' pending';
+
+        container.innerHTML = requests.map(request => `
+            <div class="request-card">
+                <div class="request-header">
+                    <div class="request-employee">
+                        <div class="employee-avatar">${request.employeeName.charAt(0).toUpperCase()}</div>
+                        <div class="employee-info">
+                            <h4>${request.employeeName}</h4>
+                            <span class="employee-email">${request.employeeEmail}</span>
+                        </div>
+                    </div>
+                    <span class="status-badge status-pending">⏱ Pending</span>
+                </div>
+                <div class="request-details">
+                    <div class="detail-row">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect>
+                            <line x1="16" y1="2" x2="16" y2="6"></line>
+                            <line x1="8" y1="2" x2="8" y2="6"></line>
+                            <line x1="3" y1="10" x2="21" y2="10"></line>
+                        </svg>
+                        <span><strong>Attendance Date:</strong> ${request.attendanceDate}</span>
+                    </div>
+                    <div class="detail-row">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <circle cx="12" cy="12" r="10"></circle>
+                            <polyline points="12 6 12 12 16 14"></polyline>
+                        </svg>
+                        <span><strong>Requested:</strong> ${request.requestDate}</span>
+                    </div>
+                    <div class="detail-row full-width">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+                            <polyline points="14 2 14 8 20 8"></polyline>
+                        </svg>
+                        <span><strong>Reason:</strong> ${request.reason}</span>
+                    </div>
+                </div>
+                <div class="request-actions">
+                    <button class="btn-success btn-sm" onclick="approveRegularization('${request.requestId}')">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <polyline points="20 6 9 17 4 12"></polyline>
+                        </svg>
+                        Approve
+                    </button>
+                    <button class="btn-danger btn-sm" onclick="rejectRegularization('${request.requestId}')">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <line x1="18" y1="6" x2="6" y2="18"></line>
+                            <line x1="6" y1="6" x2="18" y2="18"></line>
+                        </svg>
+                        Reject
+                    </button>
+                </div>
+            </div>
+        `).join('');
+    }
+
+    /**
+     * Approve regularization request
+     */
+    function approveRegularization(requestId) {
+        const comments = prompt('Add optional comments (or leave blank):');
+
+        if (comments === null) return; // User cancelled
+
+        google.script.run
+            .withSuccessHandler(function (result) {
+                if (result.success) {
+                    showToast(result.message, 'success');
+                    loadManagerRegularizationRequests();
+                } else {
+                    showToast(result.message, 'error');
+                }
+            })
+            .withFailureHandler(function (error) {
+                console.error('Error approving regularization:', error);
+                showToast('Failed to approve request. Please try again.', 'error');
+            })
+            .approveRegularizationRequest(requestId, comments);
+    }
+
+    /**
+     * Reject regularization request
+     */
+    function rejectRegularization(requestId) {
+        const comments = prompt('Please provide a reason for rejection (required):');
+
+        if (!comments || comments.trim().length < 5) {
+            showToast('Please provide a valid reason for rejection', 'error');
+            return;
+        }
+
+        google.script.run
+            .withSuccessHandler(function (result) {
+                if (result.success) {
+                    showToast(result.message, 'success');
+                    loadManagerRegularizationRequests();
+                } else {
+                    showToast(result.message, 'error');
+                }
+            })
+            .withFailureHandler(function (error) {
+                console.error('Error rejecting regularization:', error);
+                showToast('Failed to reject request. Please try again.', 'error');
+            })
+            .rejectRegularizationRequest(requestId, comments);
+    }
+
+    /**
+     * Toggle section collapse/expand
+     */
+    function toggleSection(sectionId) {
+        const content = document.getElementById(sectionId + 'Content');
+        const toggle = document.getElementById(sectionId + 'Toggle');
+
+        if (content.classList.contains('collapsed')) {
+            content.classList.remove('collapsed');
+            toggle.style.transform = 'rotate(0deg)';
+        } else {
+            content.classList.add('collapsed');
+            toggle.style.transform = 'rotate(-90deg)';
+        }
+    }
+
+    // ============================================================================
+    // MISPUNCH CORRECTION FUNCTIONS
+    // ============================================================================
+
+    // Global variable to store current mispunch requests
+    let currentMispunchRequests = [];
+
+    /**
+    * Open mispunch request modal
+    */
+    function openMispunchModal() {
+        const modal = document.getElementById('mispunchModal');
+        const dateInput = document.getElementById('mispunchDate');
+
+        // Set max date to today
+        const today = new Date();
+        const maxDate = today.toISOString().split('T')[0];
+        dateInput.setAttribute('max', maxDate);
+
+        // Set min date to 7 days ago
+        const minDate = new Date();
+        minDate.setDate(minDate.getDate() - 7);
+        dateInput.setAttribute('min', minDate.toISOString().split('T')[0]);
+
+        // Reset form
+        document.getElementById('mispunchForm').reset();
+
+        modal.style.display = 'flex';
+    }
+
+    /**
+    * Close mispunch request modal
+    */
+    function closeMispunchModal() {
+        document.getElementById('mispunchModal').style.display = 'none';
+    }
+
+    /**
+    * Submit mispunch request form
+    */
+    async function submitMispunchRequestForm() {
+        const date = document.getElementById('mispunchDate').value;
+        const reason = document.getElementById('mispunchReason').value.trim();
+        const submitBtn = document.getElementById('submitMispunchBtn');
+
+        if (!date || !reason) {
+            showToast('Please fill in all required fields', 'error');
+            return;
+        }
+
+        // Disable button and show loading
+        submitBtn.disabled = true;
+        submitBtn.innerHTML = '<div class="spinner"></div> Submitting...';
+
+        try {
+            const result = await new Promise((resolve, reject) => {
+                google.script.run
+                    .withSuccessHandler(resolve)
+                    .withFailureHandler(reject)
+                    .submitMispunchRequest(date, reason);
+            });
+
+            if (result.success) {
+                showToast(result.message, 'success');
+                closeMispunchModal();
+                loadMispunchRequests(); // Reload requests
+            } else {
+                showToast(result.message, 'error');
+            }
+        } catch (error) {
+            console.error('Error submitting mispunch request:', error);
+            showToast('Failed to submit request. Please try again.', 'error');
+        } finally {
+            submitBtn.disabled = false;
+            submitBtn.innerHTML = 'Submit Request';
+        }
+    }
+
+    /**
+    * Load employee mispunch requests
+    */
+    function loadMispunchRequests() {
+        google.script.run
+            .withSuccessHandler(displayMispunchRequests)
+            .withFailureHandler(error => {
+                console.error('Error loading mispunch requests:', error);
+                showToast('Failed to load mispunch requests', 'error');
+            })
+            .getMispunchRequests();
+    }
+
+    /**
+    * Display mispunch requests
+    */
+    function displayMispunchRequests(requests) {
+        currentMispunchRequests = requests;
+        const container = document.getElementById('mispunchRequestsContainer');
+
+        if (!requests || requests.length === 0) {
+            container.innerHTML = `
+<div class="no-requests">
+    <svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+        <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+        <polyline points="14 2 14 8 20 8"></polyline>
+        <line x1="12" y1="18" x2="12" y2="12"></line>
+        <line x1="9" y1="15" x2="15" y2="15"></line>
+    </svg>
+    <p>No mispunch requests</p>
+    <span>Your mispunch correction requests will appear here</span>
+</div>
+`;
+            return;
+        }
+
+        container.innerHTML = requests.map(request => {
+            const statusClass = request.status.toLowerCase();
+            const statusIcon = request.status === 'Approved' ? '✓' : request.status === 'Rejected' ? '✗' : '⏱';
+
+            return `
+<div class="mispunch-request-card">
+    <div class="mispunch-card-header">
+        <div class="mispunch-date">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect>
+                <line x1="16" y1="2" x2="16" y2="6"></line>
+                <line x1="8" y1="2" x2="8" y2="6"></line>
+                <line x1="3" y1="10" x2="21" y2="10"></line>
+            </svg>
+            ${request.date}
+        </div>
+        <span class="status-badge status-${statusClass}">${statusIcon} ${request.status}</span>
+    </div>
+    <div class="mispunch-card-body">
+        <div class="mispunch-field">
+            <label>Reason:</label>
+            <p>${request.reason}</p>
+        </div>
+        <div class="mispunch-field">
+            <label>Requested on:</label>
+            <p>${request.requestDate}</p>
+        </div>
+        ${request.actionDate ? `
+        <div class="mispunch-field">
+            <label>${request.status === 'Approved' ? 'Approved' : 'Rejected'} on:</label>
+            <p>${request.actionDate}</p>
+        </div>
+        ` : ''}
+        ${request.managerComments ? `
+        <div class="mispunch-field">
+            <label>Manager Comments:</label>
+            <p>${request.managerComments}</p>
+        </div>
+        ` : ''}
+    </div>
+</div>
+`;
+        }).join('');
+    }
+
+    /**
+    * Load manager mispunch requests
+    */
+    function loadManagerMispunchRequests() {
+        google.script.run
+            .withSuccessHandler(displayManagerMispunchRequests)
+            .withFailureHandler(error => {
+                console.error('Error loading manager mispunch requests:', error);
+                showToast('Failed to load mispunch requests', 'error');
+            })
+            .getManagerMispunchRequests();
+    }
+
+    /**
+    * Display manager mispunch requests
+    */
+    function displayManagerMispunchRequests(requests) {
+        const container = document.getElementById('managerMispunchContainer');
+
+        if (!container) {
+            // Container doesn't exist yet, will be created in manager view
+            return;
+        }
+
+        if (!requests || requests.length === 0) {
+            container.innerHTML = `
+<div class="no-requests">
+    <svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+        <path d="M9 11l3 3L22 4"></path>
+        <path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"></path>
+    </svg>
+    <p>No pending mispunch requests</p>
+    <span>Pending mispunch requests will appear here</span>
+</div>
+`;
+            return;
+        }
+
+        container.innerHTML = requests.map(request => `
+<div class="request-card mispunch-manager-card">
+    <div class="request-header">
+        <div class="request-employee">
+            <div class="employee-avatar">${request.employeeName.charAt(0).toUpperCase()}</div>
+            <div class="employee-info">
+                <h4>${request.employeeName}</h4>
+                <span class="employee-email">${request.employeeEmail}</span>
+            </div>
+        </div>
+        <span class="status-badge status-pending">⏱ Pending</span>
+    </div>
+    <div class="request-details">
+        <div class="detail-row">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect>
+                <line x1="16" y1="2" x2="16" y2="6"></line>
+                <line x1="8" y1="2" x2="8" y2="6"></line>
+                <line x1="3" y1="10" x2="21" y2="10"></line>
+            </svg>
+            <span><strong>Date:</strong> ${request.date}</span>
+        </div>
+        <div class="detail-row">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <circle cx="12" cy="12" r="10"></circle>
+                <polyline points="12 6 12 12 16 14"></polyline>
+            </svg>
+            <span><strong>Requested:</strong> ${request.requestDate}</span>
+        </div>
+        <div class="detail-row full-width">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+                <polyline points="14 2 14 8 20 8"></polyline>
+            </svg>
+            <span><strong>Reason:</strong> ${request.reason}</span>
+        </div>
+    </div>
+    <div class="request-actions">
+        <button class="btn-success btn-sm" onclick="openMispunchActionModal('${request.mispunchId}', 'approve')">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <polyline points="20 6 9 17 4 12"></polyline>
+            </svg>
+            Approve
+        </button>
+        <button class="btn-danger btn-sm" onclick="openMispunchActionModal('${request.mispunchId}', 'reject')">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <line x1="18" y1="6" x2="6" y2="18"></line>
+                <line x1="6" y1="6" x2="18" y2="18"></line>
+            </svg>
+            Reject
+        </button>
+    </div>
+</div>
+`).join('');
+    }
+
+    /**
+    * Open mispunch action modal (approve/reject)
+    */
+    function openMispunchActionModal(mispunchId, action) {
+        const modal = document.getElementById('mispunchActionModal');
+        const title = document.getElementById('mispunchActionTitle');
+        const commentsRequired = document.getElementById('mispunchCommentsRequired');
+        const actionBtn = document.getElementById('mispunchActionBtn');
+
+        document.getElementById('mispunchActionId').value = mispunchId;
+        document.getElementById('mispunchActionType').value = action;
+        document.getElementById('mispunchActionComments').value = '';
+
+        if (action === 'approve') {
+            title.textContent = 'Approve Mispunch Request';
+            commentsRequired.style.display = 'none';
+            actionBtn.className = 'btn-success';
+            actionBtn.textContent = 'Approve';
+        } else {
+            title.textContent = 'Reject Mispunch Request';
+            commentsRequired.style.display = 'inline';
+            actionBtn.className = 'btn-danger';
+            actionBtn.textContent = 'Reject';
+        }
+
+        modal.style.display = 'flex';
+    }
+
+    /**
+    * Close mispunch action modal
+    */
+    function closeMispunchActionModal() {
+        document.getElementById('mispunchActionModal').style.display = 'none';
+    }
+
+    /**
+    * Confirm mispunch action (approve/reject)
+    */
+    async function confirmMispunchAction() {
+        const mispunchId = document.getElementById('mispunchActionId').value;
+        const action = document.getElementById('mispunchActionType').value;
+        const comments = document.getElementById('mispunchActionComments').value.trim();
+        const actionBtn = document.getElementById('mispunchActionBtn');
+
+        if (action === 'reject' && !comments) {
+            showToast('Please provide a reason for rejection', 'error');
+            return;
+        }
+
+        // Disable button and show loading
+        actionBtn.disabled = true;
+        const originalText = actionBtn.textContent;
+        actionBtn.innerHTML = '<div class="spinner"></div> Processing...';
+
+        try {
+            const functionName = action === 'approve' ? 'approveMispunchRequest' : 'rejectMispunchRequest';
+
+            const result = await new Promise((resolve, reject) => {
+                google.script.run
+                    .withSuccessHandler(resolve)
+                    .withFailureHandler(reject)
+                [functionName](mispunchId, comments);
+            });
+
+            if (result.success) {
+                showToast(result.message, 'success');
+                closeMispunchActionModal();
+                loadManagerMispunchRequests(); // Reload requests
+            } else {
+                showToast(result.message, 'error');
+            }
+        } catch (error) {
+            console.error(`Error ${action}ing mispunch request:`, error);
+            showToast(`Failed to ${action} request. Please try again.`, 'error');
+        } finally {
+            actionBtn.disabled = false;
+            actionBtn.textContent = originalText;
+        }
+    }
+
+    // ============================================
+    // DOCUMENT MANAGEMENT FUNCTIONS
+    // ============================================
+
+    // Show My Documents modal
+    function showMyDocumentsModal() {
+        const modal = document.getElementById('myDocumentsModal');
+        modal.classList.add('active');
+
+        // Load document types
+        loadDocumentTypes();
+
+        // Load employee documents
+        loadEmployeeDocuments();
+    }
+
+    // Close My Documents modal
+    function closeMyDocumentsModal() {
+        const modal = document.getElementById('myDocumentsModal');
+        modal.classList.remove('active');
+
+        // Reset form
+        document.getElementById('documentUploadForm').reset();
+    }
+
+    // Load document types into dropdown
+    function loadDocumentTypes() {
+        google.script.run
+            .withSuccessHandler(function (types) {
+                const select = document.getElementById('documentType');
+                // Clear existing options except first
+                select.innerHTML = '<option value="">Select document type</option>';
+
+                // Add document types
+                types.forEach(type => {
+                    const option = document.createElement('option');
+                    option.value = type;
+                    option.textContent = type;
+                    select.appendChild(option);
+                });
+            })
+            .withFailureHandler(function (error) {
+                console.error('Error loading document types:', error);
+            })
+            .getDocumentTypes();
+    }
+
+    // Load employee documents
+    function loadEmployeeDocuments() {
+        google.script.run
+            .withSuccessHandler(function (documents) {
+                renderDocumentsTable(documents);
+            })
+            .withFailureHandler(function (error) {
+                showToast('Error loading documents: ' + error.message, 'error');
+            })
+            .getEmployeeDocuments();
+    }
+
+    // Render documents table
+    function renderDocumentsTable(documents) {
+        const tbody = document.getElementById('documentsTableBody');
+
+        if (!documents || documents.length === 0) {
+            tbody.innerHTML = `
+                <tr class="no-documents-row">
+                    <td colspan="5" style="text-align: center; padding: 40px;">
+                        <svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" style="margin: 0 auto; display: block; opacity: 0.3;">
+                            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+                            <polyline points="14 2 14 8 20 8"></polyline>
+                        </svg>
+                        <p style="margin-top: 16px; color: var(--text-secondary);">No documents uploaded yet</p>
+                    </td>
+                </tr>
+            `;
+            return;
+        }
+
+        tbody.innerHTML = documents.map(doc => {
+            const statusClass = doc.verificationStatus.toLowerCase();
+            const statusIcon = {
+                'pending': '⏳',
+                'verified': '✅',
+                'rejected': '⛔'
+            }[statusClass] || '📄';
+
+            const fileSizeMB = (doc.fileSize / (1024 * 1024)).toFixed(2);
+
+            // Action buttons based on status
+            let actionButtons = '';
+            if (doc.verificationStatus === 'Pending') {
+                actionButtons = `
+                    <button class="btn-outline btn-sm" onclick="deleteDocument('${doc.documentId}')" title="Delete">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <polyline points="3 6 5 6 21 6"></polyline>
+                            <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+                        </svg>
+                    </button>
+                `;
+            }
+
+            return `
+                <tr>
+                    <td>${doc.documentType}</td>
+                    <td>
+                        <div style="display: flex; flex-direction: column; gap: 4px;">
+                            <span>${doc.fileName}</span>
+                            <small style="color: var(--text-secondary); font-size: 0.85em;">${fileSizeMB} MB</small>
+                        </div>
+                    </td>
+                    <td>${doc.uploadDate}</td>
+                    <td>
+                        <span class="status-badge status-${statusClass}">
+                            ${statusIcon} ${doc.verificationStatus}
+                        </span>
+                        ${doc.hrComments ? `<br><small style="color: var(--text-secondary); font-size: 0.85em;">${doc.hrComments}</small>` : ''}
+                    </td>
+                    <td>
+                        <div style="display: flex; gap: 8px;">
+                            <button class="btn-primary btn-sm" onclick="downloadDocument('${doc.documentId}')" title="Download">
+                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                                    <polyline points="7 10 12 15 17 10"></polyline>
+                                    <line x1="12" y1="15" x2="12" y2="3"></line>
+                                </svg>
+                            </button>
+                            ${actionButtons}
+                        </div>
+                    </td>
+                </tr>
+            `;
+        }).join('');
+    }
+
+    // Upload document
+    function uploadDocument(event) {
+        event.preventDefault();
+
+        const documentType = document.getElementById('documentType').value;
+        const fileInput = document.getElementById('documentFile');
+        const file = fileInput.files[0];
+
+        if (!file) {
+            showToast('Please select a file to upload', 'error');
+            return;
+        }
+
+        // Validate file size (10MB)
+        const maxSize = 10 * 1024 * 1024;
+        if (file.size > maxSize) {
+            showToast('File size exceeds 10MB limit', 'error');
+            return;
+        }
+
+        // Validate file type
+        const allowedExtensions = ['pdf', 'jpg', 'jpeg', 'png', 'doc', 'docx'];
+        const fileExtension = file.name.split('.').pop().toLowerCase();
+        if (!allowedExtensions.includes(fileExtension)) {
+            showToast('Invalid file type. Allowed: PDF, JPG, PNG, DOC, DOCX', 'error');
+            return;
+        }
+
+        // Disable upload button
+        const uploadBtn = document.getElementById('uploadDocumentBtn');
+        const originalText = uploadBtn.innerHTML;
+        uploadBtn.disabled = true;
+        uploadBtn.innerHTML = '<span>Uploading...</span>';
+
+        // Read file as base64
+        const reader = new FileReader();
+        reader.onload = function (e) {
+            const base64Content = e.target.result.split(',')[1]; // Remove data:mime;base64, prefix
+
+            // Upload to backend
+            google.script.run
+                .withSuccessHandler(function (response) {
+                    if (response.success) {
+                        showToast(response.message, 'success');
+                        // Reset form
+                        document.getElementById('documentUploadForm').reset();
+                        // Reload documents
+                        loadEmployeeDocuments();
+                    } else {
+                        showToast(response.message, 'error');
+                    }
+                    uploadBtn.disabled = false;
+                    uploadBtn.innerHTML = originalText;
+                })
+                .withFailureHandler(function (error) {
+                    showToast('Error uploading document: ' + error.message, 'error');
+                    uploadBtn.disabled = false;
+                    uploadBtn.innerHTML = originalText;
+                })
+                .uploadEmployeeDocument(documentType, file.name, base64Content, file.type);
+        };
+
+        reader.onerror = function () {
+            showToast('Error reading file', 'error');
+            uploadBtn.disabled = false;
+            uploadBtn.innerHTML = originalText;
+        };
+
+        reader.readAsDataURL(file);
+    }
+
+    // Delete document
+    function deleteDocument(documentId) {
+        if (!confirm('Are you sure you want to delete this document?')) {
+            return;
+        }
+
+        google.script.run
+            .withSuccessHandler(function (response) {
+                if (response.success) {
+                    showToast(response.message, 'success');
+                    loadEmployeeDocuments();
+                } else {
+                    showToast(response.message, 'error');
+                }
+            })
+            .withFailureHandler(function (error) {
+                showToast('Error deleting document: ' + error.message, 'error');
+            })
+            .deleteDocument(documentId);
+    }
+
+    // Download document
+    function downloadDocument(documentId) {
+        google.script.run
+            .withSuccessHandler(function (response) {
+                if (response.success) {
+                    // Open download URL in new tab
+                    window.open(response.url, '_blank');
+                } else {
+                    showToast(response.message, 'error');
+                }
+            })
+            .withFailureHandler(function (error) {
+                showToast('Error downloading document: ' + error.message, 'error');
+            })
+            .getDocumentDownloadUrl(documentId);
+    }
+
+    // ============================================
+    // HR DOCUMENT VERIFICATION FUNCTIONS
+    // ============================================
+
+    // Load pending documents for HR verification
+    function loadHRPendingDocuments() {
+        google.script.run
+            .withSuccessHandler(function (documents) {
+                renderHRPendingDocuments(documents);
+            })
+            .withFailureHandler(function (error) {
+                console.error('Error loading HR documents:', error);
+            })
+            .getAllEmployeeDocuments();
+    }
+
+    // Render HR pending documents
+    function renderHRPendingDocuments(allDocuments) {
+        // Filter only pending documents
+        const pendingDocuments = allDocuments.filter(doc => doc.verificationStatus === 'Pending');
+
+        const container = document.getElementById('pendingDocumentsContainer');
+        const countBadge = document.getElementById('pendingDocsCount');
+
+        countBadge.textContent = `${pendingDocuments.length} pending`;
+
+        if (pendingDocuments.length === 0) {
+            container.innerHTML = `
+                <div class="no-requests">
+                    <svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                        <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+                        <polyline points="14 2 14 8 20 8"></polyline>
+                    </svg>
+                    <p>No pending documents</p>
+                    <span>Employee documents pending verification will appear here</span>
+                </div>
+            `;
+            return;
+        }
+
+        container.innerHTML = pendingDocuments.map(doc => {
+            const nameParts = doc.employeeName.split(' ');
+            const initials = nameParts.map(n => n[0]).join('').toUpperCase();
+            const fileSizeMB = (doc.fileSize / (1024 * 1024)).toFixed(2);
+
+            return `
+                <div class="request-card">
+                    <div class="employee-info">
+                        <div class="employee-avatar">${initials}</div>
+                        <div class="employee-details">
+                            <div class="employee-name">${doc.employeeName}</div>
+                            <div class="employee-email">${doc.employeeEmail}</div>
+                        </div>
+                    </div>
+                    <div class="card-header">
+                        <span class="card-id">${doc.documentId}</span>
+                        <span class="leave-type-badge">${doc.documentType}</span>
+                    </div>
+                    <div class="card-body">
+                        <div class="card-row">
+                            <span class="card-label">File Name</span>
+                            <span class="card-value">${doc.fileName}</span>
+                        </div>
+                        <div class="card-row">
+                            <span class="card-label">File Size</span>
+                            <span class="card-value">${fileSizeMB} MB</span>
+                        </div>
+                        <div class="card-row">
+                            <span class="card-label">Upload Date</span>
+                            <span class="card-value">${doc.uploadDate}</span>
+                        </div>
+                        <div class="card-row">
+                            <span class="card-label">Status</span>
+                            <span class="status-badge status-pending">⏳ ${doc.verificationStatus}</span>
+                        </div>
+                    </div>
+                    <div class="card-actions">
+                        <button class="btn-primary" onclick='openDocumentVerificationModal(${JSON.stringify(doc).replace(/'/g, "&#39;")})'>
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+                                <polyline points="14 2 14 8 20 8"></polyline>
+                            </svg>
+                            Review Document
+                        </button>
+                    </div>
+                </div>
+            `;
+        }).join('');
+    }
+
+    // Open document verification modal
+    function openDocumentVerificationModal(docData) {
+        const modal = document.getElementById('documentVerificationModal');
+
+        // Populate modal with document information
+        document.getElementById('verifyDocumentId').value = docData.documentId;
+        document.getElementById('verifyEmployeeName').textContent = docData.employeeName;
+        document.getElementById('verifyEmployeeEmail').textContent = docData.employeeEmail;
+        document.getElementById('verifyDocumentType').textContent = docData.documentType;
+        document.getElementById('verifyUploadDate').textContent = docData.uploadDate;
+        document.getElementById('verifyFileName').textContent = docData.fileName;
+        document.getElementById('verifyFileSize').textContent = (docData.fileSize / (1024 * 1024)).toFixed(2) + ' MB';
+
+        // Clear comments
+        document.getElementById('verificationComments').value = '';
+
+        // Store document ID for download
+        window.currentVerifyDocumentId = docData.documentId;
+
+        modal.classList.add('active');
+    }
+
+    // Close document verification modal
+    function closeDocumentVerificationModal() {
+        const modal = document.getElementById('documentVerificationModal');
+        modal.classList.remove('active');
+        window.currentVerifyDocumentId = null;
+    }
+
+    // Download document for verification
+    function downloadDocumentForVerification() {
+        const documentId = window.currentVerifyDocumentId;
+        if (!documentId) {
+            showToast('No document selected', 'error');
+            return;
+        }
+
+        google.script.run
+            .withSuccessHandler(function (response) {
+                if (response.success) {
+                    window.open(response.url, '_blank');
+                } else {
+                    showToast(response.message, 'error');
+                }
+            })
+            .withFailureHandler(function (error) {
+                showToast('Error downloading document: ' + error.message, 'error');
+            })
+            .getDocumentDownloadUrl(documentId);
+    }
+
+    // Verify document action (Verify or Reject)
+    function verifyDocumentAction(status) {
+        const documentId = document.getElementById('verifyDocumentId').value;
+        const comments = document.getElementById('verificationComments').value;
+
+        if (!documentId) {
+            showToast('No document selected', 'error');
+            return;
+        }
+
+        // Confirm action
+        const action = status === 'Verified' ? 'verify' : 'reject';
+        if (!confirm(`Are you sure you want to ${action} this document?`)) {
+            return;
+        }
+
+        google.script.run
+            .withSuccessHandler(function (response) {
+                if (response.success) {
+                    showToast(response.message, 'success');
+                    closeDocumentVerificationModal();
+                    // Reload pending documents
+                    loadHRPendingDocuments();
+                } else {
+                    showToast(response.message, 'error');
+                }
+            })
+            .withFailureHandler(function (error) {
+                showToast('Error verifying document: ' + error.message, 'error');
+            })
+            .verifyDocument(documentId, status, comments);
+    }
+
+</script>
